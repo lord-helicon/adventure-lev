@@ -1,0 +1,17 @@
+{
+  "name": "adventure-lev",
+  "version": "1.0.0",
+  "description": "A retro-inspired 2D platformer featuring Lev, an 11-year-old boy in a green shirt and red shorts.",
+  "main": "src/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "phaser": "^3.55.2"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
