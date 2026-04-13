@@ -1,19 +1,45 @@
+import { loadSettings, saveSettings } from './storage.js';
+
 /**
  * Audio Manager - Handles all sound effects and music
  */
 export default class AudioManager {
   constructor(scene) {
     this.scene = scene;
-    this.sounds = {};
-    this.music = null;
-    this.isMuted = false;
-    this.volume = 0.5;
-    
-    // Initialize Web Audio Context
-    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    this.masterGain = this.audioContext.createGain();
-    this.masterGain.gain.value = this.volume;
-    this.masterGain.connect(this.audioContext.destination);
+
+    if (!AudioManager.shared) {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const masterGain = audioContext.createGain();
+      const settings = loadSettings();
+      const volume = settings.volume;
+
+      masterGain.gain.value = settings.isMuted ? 0 : volume;
+      masterGain.connect(audioContext.destination);
+
+      AudioManager.shared = {
+        audioContext,
+        masterGain,
+        isMuted: settings.isMuted,
+        volume,
+        musicTimeout: null,
+        wantsMusic: false,
+        lifecycleBound: false,
+      };
+    }
+
+    this.shared = AudioManager.shared;
+    this.audioContext = this.shared.audioContext;
+    this.masterGain = this.shared.masterGain;
+    this.bindSceneUnlockHandlers();
+    this.bindLifecycleHandlers();
+  }
+
+  get isMuted() {
+    return this.shared.isMuted;
+  }
+
+  get volume() {
+    return this.shared.volume;
   }
 
   /**
@@ -21,6 +47,11 @@ export default class AudioManager {
    */
   play(type, config = {}) {
     if (this.isMuted) return;
+
+    if (this.audioContext.state !== 'running') {
+      this.resume().then(() => this.play(type, config)).catch(() => {});
+      return;
+    }
 
     const now = this.audioContext.currentTime;
     
@@ -138,12 +169,31 @@ export default class AudioManager {
    * Start background music
    */
   startMusic() {
-    if (this.music || this.isMuted) return;
+    this.shared.wantsMusic = true;
+
+    if (this.shared.musicTimeout || this.isMuted) return;
+
+    if (this.audioContext.state !== 'running') {
+      this.resume().then(() => {
+        if (this.shared.wantsMusic && !this.shared.musicTimeout && !this.isMuted) {
+          this.startMusic();
+        }
+      }).catch(() => {});
+      return;
+    }
     
     // Simple chiptune loop
     const playMusicLoop = () => {
-      if (this.isMuted) return;
-      
+      if (this.isMuted || !this.shared.wantsMusic) {
+        this.clearMusicLoop();
+        return;
+      }
+
+      if (this.audioContext.state !== 'running') {
+        this.clearMusicLoop();
+        return;
+      }
+       
       const now = this.audioContext.currentTime;
       const bpm = 120;
       const beatTime = 60 / bpm;
@@ -156,9 +206,9 @@ export default class AudioManager {
       });
       
       // Schedule next loop
-      this.musicTimeout = setTimeout(playMusicLoop, beatTime * 8 * 1000);
+      this.shared.musicTimeout = setTimeout(playMusicLoop, beatTime * 8 * 1000);
     };
-    
+     
     playMusicLoop();
   }
 
@@ -166,9 +216,14 @@ export default class AudioManager {
    * Stop background music
    */
   stopMusic() {
-    if (this.musicTimeout) {
-      clearTimeout(this.musicTimeout);
-      this.musicTimeout = null;
+    this.shared.wantsMusic = false;
+    this.clearMusicLoop();
+  }
+
+  clearMusicLoop() {
+    if (this.shared.musicTimeout) {
+      clearTimeout(this.shared.musicTimeout);
+      this.shared.musicTimeout = null;
     }
   }
 
@@ -176,25 +231,108 @@ export default class AudioManager {
    * Set volume (0-1)
    */
   setVolume(value) {
-    this.volume = Math.max(0, Math.min(1, value));
-    this.masterGain.gain.value = this.volume;
+    this.shared.volume = Math.max(0, Math.min(1, value));
+    this.masterGain.gain.value = this.isMuted ? 0 : this.shared.volume;
+    saveSettings({ volume: this.shared.volume, isMuted: this.shared.isMuted });
   }
 
   /**
    * Toggle mute
    */
   toggleMute() {
-    this.isMuted = !this.isMuted;
+    this.shared.isMuted = !this.shared.isMuted;
     this.masterGain.gain.value = this.isMuted ? 0 : this.volume;
+    saveSettings({ volume: this.shared.volume, isMuted: this.shared.isMuted });
+
+    if (this.isMuted) {
+      this.clearMusicLoop();
+    } else if (this.shared.wantsMusic) {
+      this.startMusic();
+    }
+
     return this.isMuted;
+  }
+
+  cycleVolume() {
+    const volumeSteps = [0.25, 0.5, 0.75, 1];
+    const currentIndex = volumeSteps.findIndex(step => Math.abs(step - this.volume) < 0.01);
+    const nextIndex = (currentIndex + 1) % volumeSteps.length;
+    this.setVolume(volumeSteps[nextIndex]);
+    return this.volume;
   }
 
   /**
    * Resume audio context (needed for browsers that suspend it)
    */
   resume() {
-    if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume();
+    if (this.audioContext.state === 'running') {
+      return Promise.resolve();
+    }
+
+    return this.audioContext.resume().then(() => {
+      this.masterGain.gain.value = this.isMuted ? 0 : this.volume;
+
+      if (this.shared.wantsMusic && !this.shared.musicTimeout && !this.isMuted) {
+        this.startMusic();
+      }
+    });
+  }
+
+  bindSceneUnlockHandlers() {
+    if (this.scene.__audioUnlockBound) {
+      return;
+    }
+
+    const resumeAudio = () => {
+      this.resume();
+    };
+
+    this.scene.__audioUnlockBound = true;
+    this.scene.input?.on('pointerdown', resumeAudio);
+    this.scene.input?.keyboard?.on('keydown', resumeAudio);
+
+    this.scene.events.once('shutdown', () => {
+      this.scene.input?.off('pointerdown', resumeAudio);
+      this.scene.input?.keyboard?.off('keydown', resumeAudio);
+      this.scene.__audioUnlockBound = false;
+    });
+  }
+
+  bindLifecycleHandlers() {
+    if (this.shared.lifecycleBound || typeof document === 'undefined') {
+      return;
+    }
+
+    this.shared.lifecycleBound = true;
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this.clearMusicLoop();
+        return;
+      }
+
+      this.resume();
+    });
+
+    window.addEventListener('pageshow', () => {
+      this.resume();
+    });
+
+    window.addEventListener('focus', () => {
+      this.resume();
+    });
+  }
+
+  syncSettings() {
+    const settings = loadSettings();
+    this.shared.isMuted = settings.isMuted;
+    this.shared.volume = settings.volume;
+    this.masterGain.gain.value = this.isMuted ? 0 : this.volume;
+
+    if (this.isMuted) {
+      this.clearMusicLoop();
+    } else if (this.shared.wantsMusic) {
+      this.startMusic();
     }
   }
 }

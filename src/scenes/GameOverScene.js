@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import AudioManager from '../utils/AudioManager.js';
+import { abandonRun, getRunState, startNewRun } from '../utils/runState.js';
+import { getBestScore } from '../utils/storage.js';
 
 /**
  * Game Over Scene - Shows final score and options
@@ -10,11 +12,14 @@ export default class GameOverScene extends Phaser.Scene {
   }
 
   init(data) {
-    this.finalScore = data.score || 0;
+    this.finalScore = data.score ?? getRunState().score;
+    this.bestScore = getBestScore();
   }
 
   create() {
     this.audioManager = new AudioManager(this);
+    this.audioManager.resume();
+    this.isTransitioning = false;
     
     // Background
     this.add.image(160, 90, 'bg_sky').setScrollFactor(0);
@@ -39,39 +44,71 @@ export default class GameOverScene extends Phaser.Scene {
     });
     scoreText.setOrigin(0.5);
     scoreText.setScrollFactor(0);
+
+    const bestScoreText = this.add.text(160, 102, `BEST SCORE: ${this.bestScore}`, {
+      fontSize: '10px',
+      fill: '#FFFFFF',
+      fontFamily: '"Courier New", monospace',
+    });
+    bestScoreText.setOrigin(0.5);
+    bestScoreText.setScrollFactor(0);
     
     // Options
-    const tryAgainText = this.add.text(160, 115, 'Press ENTER to Try Again', {
+    const tryAgainText = this.add.text(160, 122, 'Press ENTER to Try Again', {
       fontSize: '12px',
       fill: '#FFFFFF',
       fontFamily: '"Courier New", monospace',
     });
     tryAgainText.setOrigin(0.5);
     tryAgainText.setScrollFactor(0);
+    tryAgainText.setInteractive();
+    tryAgainText.on('pointerdown', () => this.handleRestart());
     
-    const menuText = this.add.text(160, 135, 'Press M for Menu', {
+    const menuText = this.add.text(160, 142, 'Press M for Menu', {
       fontSize: '12px',
       fill: '#AAAAAA',
       fontFamily: '"Courier New", monospace',
     });
     menuText.setOrigin(0.5);
     menuText.setScrollFactor(0);
+    menuText.setInteractive();
+    menuText.on('pointerdown', () => this.handleMenu());
     
     // Input handling
-    this.input.keyboard.on('keydown-ENTER', () => {
+    this.handleRestart = () => {
+      if (this.isTransitioning) {
+        return;
+      }
+
+      this.isTransitioning = true;
       this.audioManager.play('start');
       this.cameras.main.fadeOut(300);
       this.cameras.main.once('camerafadeoutcomplete', () => {
-        this.scene.start('GameScene');
+        startNewRun();
+        this.scene.start('GameScene', { levelIndex: 0 });
       });
-    });
+    };
     
-    this.input.keyboard.on('keydown-M', () => {
+    this.handleMenu = () => {
+      if (this.isTransitioning) {
+        return;
+      }
+
+      this.isTransitioning = true;
       this.audioManager.play('select');
       this.cameras.main.fadeOut(300);
       this.cameras.main.once('camerafadeoutcomplete', () => {
+        abandonRun();
         this.scene.start('MenuScene');
       });
+    };
+
+    this.input.keyboard.on('keydown-ENTER', this.handleRestart);
+    this.input.keyboard.on('keydown-M', this.handleMenu);
+
+    this.events.once('shutdown', () => {
+      this.input.keyboard.off('keydown-ENTER', this.handleRestart);
+      this.input.keyboard.off('keydown-M', this.handleMenu);
     });
     
     // Fade in

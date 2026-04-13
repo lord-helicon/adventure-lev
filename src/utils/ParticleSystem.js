@@ -5,12 +5,19 @@ export default class ParticleSystem {
   constructor(scene) {
     this.scene = scene;
     this.particles = [];
+    this.maxParticles = 180;
+  }
+
+  canSpawn(count = 1) {
+    return this.particles.length + count <= this.maxParticles;
   }
 
   /**
    * Create dust particles when landing
    */
   createDust(x, y, count = 5) {
+    if (!this.canSpawn(count)) return;
+
     for (let i = 0; i < count; i++) {
       const particle = this.scene.add.image(x, y, 'particle_dust');
       particle.setAlpha(0.8);
@@ -35,6 +42,8 @@ export default class ParticleSystem {
    * Create coin collection sparkles
    */
   createSparkles(x, y, count = 8) {
+    if (!this.canSpawn(count)) return;
+
     for (let i = 0; i < count; i++) {
       const particle = this.scene.add.image(x, y, 'particle_sparkle');
       particle.setAlpha(1);
@@ -60,6 +69,8 @@ export default class ParticleSystem {
    * Create explosion effect (enemy death)
    */
   createExplosion(x, y, count = 12) {
+    if (!this.canSpawn(count)) return;
+
     for (let i = 0; i < count; i++) {
       const particle = this.scene.add.image(x, y, 'particle_explode');
       particle.setAlpha(1);
@@ -85,6 +96,8 @@ export default class ParticleSystem {
    * Create heart particles (extra life)
    */
   createHearts(x, y, count = 5) {
+    if (!this.canSpawn(count)) return;
+
     for (let i = 0; i < count; i++) {
       const particle = this.scene.add.image(x, y, 'particle_heart');
       particle.setAlpha(1);
@@ -111,6 +124,8 @@ export default class ParticleSystem {
    */
   createPowerUpEffect(x, y, color = 0xFFD700) {
     const count = 10;
+    if (!this.canSpawn(count)) return;
+
     for (let i = 0; i < count; i++) {
       const particle = this.scene.add.image(x, y, 'particle_sparkle');
       particle.setTint(color);
@@ -137,6 +152,8 @@ export default class ParticleSystem {
    * Create star trail for invincibility
    */
   createStarTrail(x, y) {
+    if (!this.canSpawn()) return;
+
     const particle = this.scene.add.image(x, y, 'particle_sparkle');
     particle.setTint(0xFFD700);
     particle.setAlpha(0.8);
@@ -158,13 +175,14 @@ export default class ParticleSystem {
    * Update all particles
    */
   update(dt) {
-    for (let i = this.particles.length - 1; i >= 0; i--) {
+    let writeIndex = 0;
+
+    for (let i = 0; i < this.particles.length; i++) {
       const p = this.particles[i];
       p.life -= dt;
       
       if (p.life <= 0) {
         p.sprite.destroy();
-        this.particles.splice(i, 1);
         continue;
       }
       
@@ -181,8 +199,12 @@ export default class ParticleSystem {
       // Fade out
       const alpha = (p.life / p.maxLife);
       p.sprite.setAlpha(alpha);
-      p.sprite.setScale(p.sprite.scaleX * (0.99));
+      p.sprite.setScale(p.sprite.scaleX * 0.99);
+      this.particles[writeIndex] = p;
+      writeIndex += 1;
     }
+
+    this.particles.length = writeIndex;
   }
 
   /**

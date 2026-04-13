@@ -8,9 +8,12 @@ export default class Enemy {
     this.scene = scene;
     this.type = type;
     this.isDead = false;
+    this.jumpTimer = 0.9;
+    this.diveState = 'patrol';
+    this.diveTarget = { x, y };
     
     // Create sprite based on type
-    const textureKey = type === 'flying' ? 'enemy_flying_0' : 'enemy_ground_0';
+    const textureKey = this.getTextureKey();
     this.sprite = scene.physics.add.sprite(x, y, textureKey);
     this.sprite.setCollideWorldBounds(true);
     this.sprite.setDepth(4);
@@ -19,20 +22,28 @@ export default class Enemy {
       this.sprite.setBodySize(14, 12);
       this.sprite.setOffset(1, 4);
       this.sprite.setBounce(0);
+    } else if (type === 'hopper') {
+      this.sprite.setBodySize(14, 14);
+      this.sprite.setOffset(1, 2);
+      this.sprite.setBounce(0);
+    } else if (type === 'swooper') {
+      this.sprite.setBodySize(12, 10);
+      this.sprite.setOffset(2, 3);
     } else {
       this.sprite.setBodySize(12, 10);
       this.sprite.setOffset(2, 3);
     }
     
     // Disable gravity for flying enemies
-    if (type === 'flying') {
+    if (type === 'flying' || type === 'swooper') {
       this.sprite.body.allowGravity = false;
     }
     
     // Movement properties
     this.patrolStartX = x;
+    this.baseY = y;
     this.patrolDistance = 60;
-    this.patrolSpeed = 40;
+    this.patrolSpeed = type === 'hopper' ? 30 : type === 'swooper' ? 32 : 40;
     this.facingRight = false;
     
     // Animation
@@ -44,6 +55,22 @@ export default class Enemy {
     
     // Start patrolling
     this.startPatrol();
+  }
+
+  getTextureKey() {
+    if (this.type === 'flying') {
+      return 'enemy_flying_0';
+    }
+
+    if (this.type === 'hopper') {
+      return 'enemy_hopper_0';
+    }
+
+    if (this.type === 'swooper') {
+      return 'enemy_swooper_0';
+    }
+
+    return 'enemy_ground_0';
   }
 
   createAnimations() {
@@ -76,10 +103,42 @@ export default class Enemy {
         repeat: -1
       });
     }
+
+    if (!this.scene.anims.exists('enemy_hopper')) {
+      this.scene.anims.create({
+        key: 'enemy_hopper',
+        frames: [
+          { key: 'enemy_hopper_0' },
+          { key: 'enemy_hopper_1' },
+          { key: 'enemy_hopper_2' },
+          { key: 'enemy_hopper_3' },
+        ],
+        frameRate: 8,
+        repeat: -1
+      });
+    }
+
+    if (!this.scene.anims.exists('enemy_swooper')) {
+      this.scene.anims.create({
+        key: 'enemy_swooper',
+        frames: [
+          { key: 'enemy_swooper_0' },
+          { key: 'enemy_swooper_1' },
+          { key: 'enemy_swooper_2' },
+          { key: 'enemy_swooper_3' },
+        ],
+        frameRate: 10,
+        repeat: -1
+      });
+    }
     
     // Start appropriate animation
     if (this.type === 'ground') {
       this.sprite.anims.play('enemy_ground_walk', true);
+    } else if (this.type === 'hopper') {
+      this.sprite.anims.play('enemy_hopper', true);
+    } else if (this.type === 'swooper') {
+      this.sprite.anims.play('enemy_swooper', true);
     } else {
       this.sprite.anims.play('enemy_flying', true);
     }
@@ -94,6 +153,10 @@ export default class Enemy {
     
     if (this.type === 'ground') {
       this.updateGroundBehavior();
+    } else if (this.type === 'hopper') {
+      this.updateHopperBehavior(dt);
+    } else if (this.type === 'swooper') {
+      this.updateSwooperBehavior(dt);
     } else {
       this.updateFlyingBehavior(dt);
     }
@@ -143,14 +206,92 @@ export default class Enemy {
     }
     
     // Vertical sine wave movement
-    const waveOffset = Math.sin(this.animTimer * 3) * 0.5;
-    this.sprite.y += waveOffset;
+    const waveOffset = Math.sin(this.animTimer * 3) * 6;
+    this.sprite.y = this.baseY + waveOffset;
     
     // Update facing
     if (this.sprite.body.velocity.x > 0) {
       this.sprite.setFlipX(true);
     } else {
       this.sprite.setFlipX(false);
+    }
+  }
+
+  updateHopperBehavior(dt) {
+    this.updateGroundBehavior();
+
+    const isGrounded = this.sprite.body.blocked.down || this.sprite.body.touching.down;
+
+    if (!isGrounded) {
+      return;
+    }
+
+    this.jumpTimer -= dt;
+
+    if (this.jumpTimer <= 0) {
+      this.sprite.setVelocityY(-220);
+      this.jumpTimer = Phaser.Math.FloatBetween(0.8, 1.25);
+    }
+  }
+
+  updateSwooperBehavior(dt) {
+    this.animTimer += dt;
+    this.sprite.body.allowGravity = false;
+
+    if (this.diveState === 'patrol') {
+      this.updateFlyingBehavior(dt);
+
+      const player = this.scene.player?.sprite;
+      if (
+        player &&
+        Math.abs(player.x - this.sprite.x) < 110 &&
+        player.y > this.sprite.y + 8 &&
+        player.y < this.baseY + 85
+      ) {
+        this.diveState = 'dive';
+        this.diveTarget = {
+          x: player.x,
+          y: Math.min(player.y + 8, this.baseY + 72),
+        };
+      }
+
+      return;
+    }
+
+    if (this.diveState === 'dive') {
+      const diveVector = new Phaser.Math.Vector2(
+        this.diveTarget.x - this.sprite.x,
+        this.diveTarget.y - this.sprite.y
+      );
+
+      if (diveVector.lengthSq() > 0) {
+        diveVector.normalize().scale(115);
+        this.sprite.setVelocity(diveVector.x, diveVector.y);
+        this.sprite.setFlipX(diveVector.x > 0);
+      }
+
+      if (
+        Phaser.Math.Distance.Between(this.sprite.x, this.sprite.y, this.diveTarget.x, this.diveTarget.y) < 12 ||
+        this.sprite.y >= this.baseY + 72
+      ) {
+        this.diveState = 'return';
+      }
+
+      return;
+    }
+
+    const returnVector = new Phaser.Math.Vector2(this.patrolStartX - this.sprite.x, this.baseY - this.sprite.y);
+
+    if (returnVector.lengthSq() > 0) {
+      returnVector.normalize().scale(80);
+      this.sprite.setVelocity(returnVector.x, returnVector.y);
+      this.sprite.setFlipX(returnVector.x > 0);
+    }
+
+    if (Phaser.Math.Distance.Between(this.sprite.x, this.sprite.y, this.patrolStartX, this.baseY) < 8) {
+      this.diveState = 'patrol';
+      this.sprite.setPosition(this.patrolStartX, this.baseY);
+      this.startPatrol();
     }
   }
 

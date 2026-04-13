@@ -213,6 +213,93 @@ export const createAssets = function() {
     this.textures.addCanvas(`enemy_flying_${i}`, canvas);
   }
 
+  // Hopper enemy (beetle-like)
+  for (let i = 0; i < 4; i++) {
+    const { canvas, ctx } = createCanvas(16, 16);
+    const crouch = i % 2 === 0 ? 0 : 1;
+    const eyeOffset = i >= 2 ? 1 : 0;
+
+    ctx.fillStyle = '#1E90FF';
+    ctx.fillRect(2, 5 + crouch, 12, 8 - crouch);
+
+    ctx.fillStyle = '#63B8FF';
+    ctx.fillRect(4, 6 + crouch, 4, 3);
+    ctx.fillRect(9, 7 + crouch, 2, 2);
+
+    ctx.fillStyle = '#0B3D91';
+    ctx.fillRect(3, 13, 2, 2);
+    ctx.fillRect(11, 13, 2, 2);
+    ctx.fillRect(1, 11 + crouch, 2, 2);
+    ctx.fillRect(13, 11 + crouch, 2, 2);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(5, 7 + crouch, 2, 2);
+    ctx.fillRect(9, 7 + crouch, 2, 2);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(5 + eyeOffset, 8 + crouch, 1, 1);
+    ctx.fillRect(9 + eyeOffset, 8 + crouch, 1, 1);
+
+    this.textures.addCanvas(`enemy_hopper_${i}`, canvas);
+  }
+
+  // Swooper enemy (hawk-like)
+  for (let i = 0; i < 4; i++) {
+    const { canvas, ctx } = createCanvas(16, 16);
+    const wingOffset = i % 2 === 0 ? 0 : 2;
+    const tailOffset = i >= 2 ? 1 : 0;
+
+    ctx.fillStyle = '#7B3F00';
+    ctx.fillRect(1, 5 + wingOffset, 4, 2);
+    ctx.fillRect(11, 5 + wingOffset, 4, 2);
+    ctx.fillRect(2, 7 + wingOffset, 2, 2);
+    ctx.fillRect(12, 7 + wingOffset, 2, 2);
+
+    ctx.fillStyle = '#A0522D';
+    ctx.fillRect(4, 5, 8, 6);
+    ctx.fillRect(7, 11, 2, 3);
+
+    ctx.fillStyle = '#F5DEB3';
+    ctx.fillRect(5, 8, 6, 2);
+
+    ctx.fillStyle = '#FFD700';
+    ctx.fillRect(7, 10 + tailOffset, 2, 1);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(5, 6, 2, 2);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(6, 7, 1, 1);
+
+    this.textures.addCanvas(`enemy_swooper_${i}`, canvas);
+  }
+
+  // Final boss (stone guardian)
+  for (let i = 0; i < 4; i++) {
+    const { canvas, ctx } = createCanvas(32, 24);
+    const armOffset = i % 2 === 0 ? 0 : 1;
+    const eyeGlow = i >= 2 ? '#FFEE88' : '#FFD700';
+
+    ctx.fillStyle = '#5F6B7A';
+    ctx.fillRect(8, 4, 16, 14);
+    ctx.fillRect(4, 8 + armOffset, 4, 8);
+    ctx.fillRect(24, 8 - armOffset, 4, 8);
+    ctx.fillRect(10, 18, 4, 6);
+    ctx.fillRect(18, 18, 4, 6);
+
+    ctx.fillStyle = '#92A0AF';
+    ctx.fillRect(10, 6, 5, 4);
+    ctx.fillRect(18, 8, 4, 3);
+    ctx.fillRect(6, 10, 2, 3);
+
+    ctx.fillStyle = eyeGlow;
+    ctx.fillRect(12, 10, 3, 2);
+    ctx.fillRect(17, 10, 3, 2);
+
+    ctx.fillStyle = '#2F3B4A';
+    ctx.fillRect(11, 15, 10, 2);
+
+    this.textures.addCanvas(`boss_guardian_${i}`, canvas);
+  }
+
   // ==========================================
   // TILES AND PLATFORMS
   // ==========================================

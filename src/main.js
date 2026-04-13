@@ -5,6 +5,8 @@ import MenuScene from './scenes/MenuScene.js';
 import GameScene from './scenes/GameScene.js';
 import PauseScene from './scenes/PauseScene.js';
 import GameOverScene from './scenes/GameOverScene.js';
+import LevelSummaryScene from './scenes/LevelSummaryScene.js';
+import SettingsScene from './scenes/SettingsScene.js';
 
 const config = {
   type: Phaser.CANVAS,
@@ -27,7 +29,16 @@ const config = {
       tileBias: 8,
     },
   },
-  scene: [BootScene, PreloadScene, MenuScene, GameScene, PauseScene, GameOverScene],
+  scene: [
+    BootScene,
+    PreloadScene,
+    MenuScene,
+    GameScene,
+    PauseScene,
+    GameOverScene,
+    LevelSummaryScene,
+    SettingsScene,
+  ],
   backgroundColor: '#1a1a2e',
 };
 

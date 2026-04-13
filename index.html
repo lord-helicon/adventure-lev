@@ -17,6 +17,9 @@
       overflow: hidden;
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
       font-family: 'Courier New', monospace;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
     }
     
     body {
@@ -41,6 +44,8 @@
       image-rendering: -o-crisp-edges;
       -ms-interpolation-mode: nearest-neighbor;
       display: block;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
     }
     
     /* Scanline effect overlay */

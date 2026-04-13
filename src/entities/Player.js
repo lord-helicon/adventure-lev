@@ -47,40 +47,46 @@ export default class Player {
 
   createAnimations() {
     // Idle animation
-    this.scene.anims.create({
-      key: 'lev_idle',
-      frames: [
-        { key: 'lev_idle_0' },
-        { key: 'lev_idle_1' },
-        { key: 'lev_idle_2' },
-        { key: 'lev_idle_3' },
-      ],
-      frameRate: 6,
-      repeat: -1
-    });
+    if (!this.scene.anims.exists('lev_idle')) {
+      this.scene.anims.create({
+        key: 'lev_idle',
+        frames: [
+          { key: 'lev_idle_0' },
+          { key: 'lev_idle_1' },
+          { key: 'lev_idle_2' },
+          { key: 'lev_idle_3' },
+        ],
+        frameRate: 6,
+        repeat: -1
+      });
+    }
 
     // Run animation
-    this.scene.anims.create({
-      key: 'lev_run',
-      frames: [
-        { key: 'lev_run_0' },
-        { key: 'lev_run_1' },
-        { key: 'lev_run_2' },
-        { key: 'lev_run_3' },
-        { key: 'lev_run_4' },
-        { key: 'lev_run_5' },
-      ],
-      frameRate: 10,
-      repeat: -1
-    });
+    if (!this.scene.anims.exists('lev_run')) {
+      this.scene.anims.create({
+        key: 'lev_run',
+        frames: [
+          { key: 'lev_run_0' },
+          { key: 'lev_run_1' },
+          { key: 'lev_run_2' },
+          { key: 'lev_run_3' },
+          { key: 'lev_run_4' },
+          { key: 'lev_run_5' },
+        ],
+        frameRate: 10,
+        repeat: -1
+      });
+    }
 
     // Jump (single frame)
-    this.scene.anims.create({
-      key: 'lev_jump',
-      frames: [{ key: 'lev_jump' }],
-      frameRate: 1,
-      repeat: 0
-    });
+    if (!this.scene.anims.exists('lev_jump')) {
+      this.scene.anims.create({
+        key: 'lev_jump',
+        frames: [{ key: 'lev_jump' }],
+        frameRate: 1,
+        repeat: 0
+      });
+    }
   }
 
   update(cursors, dt) {
