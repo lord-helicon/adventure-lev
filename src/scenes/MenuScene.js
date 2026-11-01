@@ -96,7 +96,7 @@ export default class MenuScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-ENTER', this.handleSelect);
     this.input.keyboard.on('keydown-SPACE', this.handleSelect);
 
-    this.audioManager.startMusic();
+    this.audioManager.playMusic('menu');
   }
 
   buildMenuOptions() {
@@ -194,7 +194,6 @@ export default class MenuScene extends Phaser.Scene {
       this.input.keyboard.off('keydown-DOWN', this.handleDown);
       this.input.keyboard.off('keydown-ENTER', this.handleSelect);
       this.input.keyboard.off('keydown-SPACE', this.handleSelect);
-      this.audioManager.stopMusic();
     });
   }
 

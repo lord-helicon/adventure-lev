@@ -19,6 +19,7 @@ export default class GameOverScene extends Phaser.Scene {
   create() {
     this.audioManager = new AudioManager(this);
     this.audioManager.resume();
+    this.audioManager.playJingle('gameover');
     this.isTransitioning = false;
     
     // Background
