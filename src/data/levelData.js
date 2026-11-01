@@ -137,7 +137,7 @@ const campaignLevels = [
       { x: 1330, y: 130 },
     ],
     enemies: [
-      { x: 78, y: 148, type: 'ground', patrolDistance: 45 },
+      { x: 110, y: 148, type: 'ground', patrolDistance: 30 },
       { x: 278, y: 148, type: 'ground', patrolDistance: 45 },
       { x: 470, y: 146, type: 'hopper', patrolDistance: 35 },
       { x: 744, y: 96, type: 'ground', patrolDistance: 45 },
@@ -226,7 +226,7 @@ const campaignLevels = [
       { x: 1440, y: 130 },
     ],
     enemies: [
-      { x: 80, y: 148, type: 'ground', patrolDistance: 40 },
+      { x: 110, y: 148, type: 'ground', patrolDistance: 30 },
       { x: 270, y: 146, type: 'hopper', patrolDistance: 35 },
       { x: 610, y: 148, type: 'ground', patrolDistance: 40 },
       { x: 1270, y: 146, type: 'hopper', patrolDistance: 35 },
@@ -314,7 +314,7 @@ const campaignLevels = [
       { x: 1480, y: 130 },
     ],
     enemies: [
-      { x: 70, y: 148, type: 'ground', patrolDistance: 35 },
+      { x: 100, y: 148, type: 'ground', patrolDistance: 20 },
       { x: 220, y: 148, type: 'ground', patrolDistance: 35 },
       { x: 564, y: 146, type: 'hopper', patrolDistance: 45 },
       { x: 816, y: 148, type: 'ground', patrolDistance: 35 },

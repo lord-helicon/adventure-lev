@@ -62,6 +62,11 @@ export default class GameScene extends Phaser.Scene {
     this.boss = null;
     this.bossDefeated = false;
     this.goalLocked = false;
+    // Phaser reuses the scene instance, so conditionally created objects must not leak from the previous level
+    this.bossText = null;
+    this.bossBanner = null;
+    this.bossBannerTimer = null;
+    this.touchHintText = null;
     this.touchControls = { left: false, right: false, jump: false };
     this.touchButtons = [];
     this.touchButtonReleases = [];
@@ -501,8 +506,11 @@ export default class GameScene extends Phaser.Scene {
 
     // One-way: only collide when the player was above the platform top on the previous step.
     // Comparing positions (not velocity) keeps the player on platforms that are moving upward.
-    this.physics.add.collider(this.player.sprite, tiles, null, (player, tile) =>
-      player.body.prev.y + player.body.height <= tile.body.prev.y + 4
+    this.physics.add.collider(
+      this.player.sprite,
+      tiles,
+      () => this.player.markPlatformContact(),
+      (player, tile) => player.body.prev.y + player.body.height <= tile.body.prev.y + 4
     );
   }
 
@@ -583,9 +591,9 @@ export default class GameScene extends Phaser.Scene {
       this.player.sprite,
       tiles,
       (player, tile) => {
-        if (player.body.touching.down) {
-          tile.fallingPlatform.standing = true;
-        }
+        // The process callback only admits contact from above, so a collision here means standing on it
+        tile.fallingPlatform.standing = true;
+        this.player.markPlatformContact();
       },
       (player, tile) =>
         tile.fallingPlatform.state !== 'falling' &&

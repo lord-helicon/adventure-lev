@@ -33,6 +33,7 @@ export default class Player {
     this.jumpBufferTimer = 0;
     this.isGrounded = false;
     this.wasGrounded = false;
+    this.lastPlatformContact = -Infinity;
     this.isJumping = false;
     
     // Power-up states
@@ -98,7 +99,7 @@ export default class Player {
   update(cursors, dt) {
     // Check grounded state
     this.wasGrounded = this.isGrounded;
-    this.isGrounded = this.sprite.body.touching.down;
+    this.isGrounded = this.isOnGround();
     
     // Handle coyote time
     if (this.wasGrounded && !this.isGrounded) {
@@ -189,6 +190,23 @@ export default class Player {
         this.currentAnim = 'idle';
       }
     }
+  }
+
+  /**
+   * Arcade overlap checks (coins, power-ups, spikes, secret zones...) also set
+   * body.touching.down, so touching can't be trusted for ground detection.
+   * Static ground sets blocked.down; dynamic platforms (moving/falling) report
+   * contact through their collide callbacks via markPlatformContact().
+   */
+  isOnGround() {
+    const body = this.sprite.body;
+    const recentPlatformContact = this.scene.time.now - this.lastPlatformContact < 50;
+
+    return body.blocked.down || (recentPlatformContact && body.velocity.y >= 0);
+  }
+
+  markPlatformContact() {
+    this.lastPlatformContact = this.scene.time.now;
   }
 
   /**
