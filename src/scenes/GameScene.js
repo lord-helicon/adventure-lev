@@ -8,13 +8,18 @@ import { getLevelCount, getLevelData } from '../data/levelData.js';
 import { getKeyboardLayoutBindings, getKeyboardLayoutLabel } from '../utils/inputConfig.js';
 import { loadSettings } from '../utils/storage.js';
 import { createGamepadInput } from '../utils/gamepadInput.js';
+import { computeRank, formatTime, getParTime, RANK_COLORS } from '../utils/rank.js';
 import {
   abandonRun,
+  addCoin,
+  addDeath,
   addLife,
   addScore,
   ensureRunStarted,
+  getRunState,
   hasNextLevel,
   loseLife,
+  recordLevelResult,
   setCurrentLevelIndex,
 } from '../utils/runState.js';
 
@@ -47,6 +52,11 @@ export default class GameScene extends Phaser.Scene {
     this.movingPlatforms = [];
     this.secretZones = [];
     this.discoveredSecrets = new Set();
+    // Run coin total (this.coins is the physics group) and per-level stats for the summary
+    this.coinCount = runState.coins;
+    this.levelCoins = 0;
+    this.levelDeaths = 0;
+    this.levelTime = 0;
     this.boss = null;
     this.bossDefeated = false;
     this.goalLocked = false;
@@ -512,9 +522,42 @@ export default class GameScene extends Phaser.Scene {
   collectCoin(coin) {
     coin.destroy();
     this.score = addScore(10);
+    this.levelCoins += 1;
+
+    const result = addCoin();
+    this.coinCount = result.coins;
+    this.lives = result.lives;
     this.audioManager.play('coin');
     this.particles.createSparkles(coin.x, coin.y);
+
+    if (result.oneUps > 0) {
+      this.showOneUp();
+    }
+
     this.updateUI();
+  }
+
+  showOneUp() {
+    this.audioManager.play('powerup');
+    this.particles.createHearts(this.player.x, this.player.y - 20);
+
+    const pop = this.add.text(this.player.x, this.player.y - 24, '1UP', {
+      fontSize: '10px',
+      fill: '#66FF66',
+      fontFamily: '"Courier New", monospace',
+      fontStyle: 'bold',
+    });
+    pop.setOrigin(0.5);
+    pop.setDepth(110);
+
+    this.tweens.add({
+      targets: pop,
+      y: pop.y - 18,
+      alpha: 0,
+      duration: 900,
+      ease: 'Sine.easeOut',
+      onComplete: () => pop.destroy(),
+    });
   }
 
   hitEnemy(player, enemySprite) {
@@ -655,6 +698,8 @@ export default class GameScene extends Phaser.Scene {
     if (this.gameOver || this.levelComplete || this.isRespawning) return;
 
     this.lives = loseLife(1);
+    this.levelDeaths += 1;
+    addDeath();
     this.audioManager.play('death');
     this.particles.createExplosion(this.player.x, this.player.y);
 
@@ -721,7 +766,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     if (this.isTouchDevice) {
-      this.touchHintText = this.add.text(160, 34, 'TOUCH: MOVE  JUMP  PAUSE', {
+      // Bottom centre, clear of the top-row HUD and the boss banner
+      this.touchHintText = this.add.text(160, 168, 'TOUCH: MOVE  JUMP  PAUSE', {
         fontSize: '8px',
         fill: '#88CCFF',
         fontFamily: '"Courier New", monospace',
@@ -731,35 +777,72 @@ export default class GameScene extends Phaser.Scene {
       this.touchHintText.setDepth(100);
     }
     
+    // Top row, left to right: score | level | coins | lives (nothing shares an x-range)
+    this.coinIcon = this.add.image(204, 13, 'ui_coin');
+    this.coinIcon.setScrollFactor(0);
+    this.coinIcon.setDepth(100);
+
+    this.coinText = this.add.text(211, 8, `x${this.coinCount}`, {
+      fontSize: '10px',
+      fill: '#FFD700',
+      fontFamily: '"Courier New", monospace',
+    });
+    this.coinText.setScrollFactor(0);
+    this.coinText.setDepth(100);
+
     // Lives (heart icons)
     this.livesContainer = this.add.container(0, 0);
     this.livesContainer.setScrollFactor(0);
     this.livesContainer.setDepth(100);
+    this.renderedLives = null;
     this.updateLivesUI();
-    
-    // Pause hint
-    const pauseText = this.add.text(310, 8, 'ESC', {
-      fontSize: '8px',
-      fill: '#888888',
-      fontFamily: '"Courier New", monospace',
-    });
-    pauseText.setOrigin(1, 0);
-    pauseText.setScrollFactor(0);
-    pauseText.setDepth(100);
+
+    // Pause hint, under the lives. Touch devices have the PAUSE button instead.
+    if (!this.isTouchDevice) {
+      const pauseText = this.add.text(314, 20, 'ESC: PAUSE', {
+        fontSize: '8px',
+        fill: '#888888',
+        fontFamily: '"Courier New", monospace',
+      });
+      pauseText.setOrigin(1, 0);
+      pauseText.setScrollFactor(0);
+      pauseText.setDepth(100);
+    }
   }
 
   updateLivesUI() {
+    // Rebuilding on every coin or score change is wasteful, so only redraw when lives changed
+    if (this.renderedLives === this.lives) {
+      return;
+    }
+
+    this.renderedLives = this.lives;
     this.livesContainer.removeAll(true);
-    
-    for (let i = 0; i < this.lives; i++) {
-      const heart = this.add.image(270 + i * 12, 12, 'ui_heart');
+
+    // Up to 3 hearts, beyond that one heart and a count so it never runs off-screen
+    const showCount = this.lives > 3;
+    const heartCount = showCount ? 1 : this.lives;
+
+    for (let i = 0; i < heartCount; i++) {
+      const heart = this.add.image(274 + i * 12, 13, 'ui_heart');
       heart.setScrollFactor(0);
       this.livesContainer.add(heart);
+    }
+
+    if (showCount) {
+      const count = this.add.text(281, 8, `x${this.lives}`, {
+        fontSize: '10px',
+        fill: '#FFFFFF',
+        fontFamily: '"Courier New", monospace',
+      });
+      count.setScrollFactor(0);
+      this.livesContainer.add(count);
     }
   }
 
   updateUI() {
     this.scoreText.setText(`SCORE: ${this.score}`);
+    this.coinText.setText(`x${this.coinCount}`);
 
     if (this.bossText) {
       this.bossText.setText(this.bossDefeated ? 'BOSS: DOWN' : `BOSS: ${this.boss.health}`);
@@ -864,27 +947,59 @@ export default class GameScene extends Phaser.Scene {
     this.scene.launch('PauseScene');
   }
 
+  getLevelStats() {
+    const stats = {
+      coins: this.levelCoins,
+      totalCoins: this.levelData.coins.length,
+      secrets: this.discoveredSecrets.size,
+      totalSecrets: this.levelData.secrets ? this.levelData.secrets.length : 0,
+      deaths: this.levelDeaths,
+      time: this.levelTime,
+      parTime: getParTime(this.levelData),
+    };
+
+    return { ...stats, rank: computeRank(stats) };
+  }
+
   showLevelComplete() {
     this.isTransitioning = true;
+    const stats = this.getLevelStats();
+    recordLevelResult(stats);
+
     this.cameras.main.fadeOut(250);
     this.cameras.main.once('camerafadeoutcomplete', () => {
       this.scene.start('LevelSummaryScene', {
         levelIndex: this.levelIndex,
         score: this.score,
         lives: this.lives,
+        coinCount: this.coinCount,
+        stats,
       });
     });
   }
 
   showCampaignComplete() {
     this.isTransitioning = true;
+    recordLevelResult(this.getLevelStats());
+    // Snapshot the run totals before abandonRun() resets them
+    const run = getRunState();
     abandonRun();
+
+    const rank = computeRank({
+      coins: run.coins,
+      totalCoins: run.coinsPossible,
+      secrets: run.secretsFound,
+      totalSecrets: run.secretsPossible,
+      deaths: run.deaths,
+      time: run.playTime,
+      parTime: run.parTime,
+    });
 
     const overlay = this.add.rectangle(160, 90, 320, 180, 0x000000, 0.8);
     overlay.setScrollFactor(0);
     overlay.setDepth(200);
 
-    const title = this.add.text(160, 60, 'CAMPAIGN COMPLETE!', {
+    const title = this.add.text(160, 30, 'CAMPAIGN COMPLETE!', {
       fontSize: '18px',
       fill: '#FFD700',
       fontFamily: '"Courier New", monospace',
@@ -894,7 +1009,7 @@ export default class GameScene extends Phaser.Scene {
     title.setScrollFactor(0);
     title.setDepth(201);
 
-    const summary = this.add.text(160, 88, `FINAL SCORE: ${this.score}`, {
+    const summary = this.add.text(160, 58, `FINAL SCORE: ${this.score}`, {
       fontSize: '12px',
       fill: '#FFFFFF',
       fontFamily: '"Courier New", monospace',
@@ -903,16 +1018,34 @@ export default class GameScene extends Phaser.Scene {
     summary.setScrollFactor(0);
     summary.setDepth(201);
 
-    const levelsCleared = this.add.text(160, 108, `LEVELS CLEARED: ${this.totalLevels}`, {
-      fontSize: '10px',
-      fill: '#AAAAAA',
-      fontFamily: '"Courier New", monospace',
-    });
-    levelsCleared.setOrigin(0.5);
-    levelsCleared.setScrollFactor(0);
-    levelsCleared.setDepth(201);
+    const lines = [
+      `LEVELS CLEARED: ${this.totalLevels}`,
+      `COINS: ${run.coins}   DEATHS: ${run.deaths}`,
+      `TOTAL TIME: ${formatTime(run.playTime)}`,
+    ];
 
-    const prompt = this.add.text(160, 132, 'ENTER / TAP for Menu', {
+    lines.forEach((line, i) => {
+      const text = this.add.text(160, 80 + i * 13, line, {
+        fontSize: '10px',
+        fill: '#AAAAAA',
+        fontFamily: '"Courier New", monospace',
+      });
+      text.setOrigin(0.5);
+      text.setScrollFactor(0);
+      text.setDepth(201);
+    });
+
+    const rankLabel = this.add.text(160, 130, `RANK: ${rank}`, {
+      fontSize: '16px',
+      fill: RANK_COLORS[rank],
+      fontFamily: '"Courier New", monospace',
+      fontStyle: 'bold',
+    });
+    rankLabel.setOrigin(0.5);
+    rankLabel.setScrollFactor(0);
+    rankLabel.setDepth(201);
+
+    const prompt = this.add.text(160, 158, 'ENTER / TAP for Menu', {
       fontSize: '10px',
       fill: '#AAAAAA',
       fontFamily: '"Courier New", monospace',
@@ -1004,6 +1137,9 @@ export default class GameScene extends Phaser.Scene {
     const dt = delta / 1000;
     
     if (this.levelComplete || this.gameOver) return;
+
+    // Clamp so a tab switch does not inflate the level time
+    this.levelTime += Math.min(dt, 0.1);
 
     if (!this.isRespawning) {
       if (this.shouldQueueJump()) {

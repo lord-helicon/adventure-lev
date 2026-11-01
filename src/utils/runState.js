@@ -3,6 +3,7 @@ import {
   clearRunProgress,
   loadRunProgress,
   recordBestScore,
+  sanitizeRunStats,
   saveRunProgress,
 } from './storage.js';
 
@@ -14,6 +15,7 @@ function createDefaultRunState() {
     score: 0,
     lives: DEFAULT_LIVES,
     currentLevelIndex: 0,
+    ...sanitizeRunStats(),
   };
 }
 
@@ -38,6 +40,7 @@ function normalizeSavedRun(savedRun) {
     score,
     lives,
     currentLevelIndex,
+    ...sanitizeRunStats(savedRun),
   };
 }
 
@@ -61,6 +64,7 @@ export function startNewRun() {
   runState.score = 0;
   runState.lives = DEFAULT_LIVES;
   runState.currentLevelIndex = 0;
+  Object.assign(runState, sanitizeRunStats());
   syncRunState();
   return getRunState();
 }
@@ -70,6 +74,7 @@ export function abandonRun() {
   runState.score = 0;
   runState.lives = DEFAULT_LIVES;
   runState.currentLevelIndex = 0;
+  Object.assign(runState, sanitizeRunStats());
   syncRunState();
 }
 
@@ -109,6 +114,35 @@ export function addScore(points) {
   recordBestScore(runState.score);
   syncRunState();
   return runState.score;
+}
+
+const COINS_PER_LIFE = 100;
+
+// Every 100th coin of the run grants a life. Returns how many were granted so the scene can celebrate.
+export function addCoin(amount = 1) {
+  const before = Math.floor(runState.coins / COINS_PER_LIFE);
+  runState.coins += amount;
+  const oneUps = Math.floor(runState.coins / COINS_PER_LIFE) - before;
+  runState.lives += oneUps;
+  syncRunState();
+  return { coins: runState.coins, lives: runState.lives, oneUps };
+}
+
+export function addDeath() {
+  runState.deaths += 1;
+  syncRunState();
+  return runState.deaths;
+}
+
+// Fold a finished level into the run totals (coins themselves are counted live by addCoin).
+export function recordLevelResult({ time, totalCoins, secrets, totalSecrets, parTime }) {
+  runState.playTime += Math.max(0, time);
+  runState.coinsPossible += Math.max(0, totalCoins);
+  runState.secretsFound += Math.max(0, secrets);
+  runState.secretsPossible += Math.max(0, totalSecrets);
+  runState.parTime += Math.max(0, parTime);
+  syncRunState();
+  return getRunState();
 }
 
 export function addLife(amount = 1) {
