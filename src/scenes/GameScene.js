@@ -675,6 +675,7 @@ export default class GameScene extends Phaser.Scene {
     return Boolean(
       Phaser.Input.Keyboard.JustDown(this.fireKeys.x) ||
       Phaser.Input.Keyboard.JustDown(this.fireKeys.f) ||
+      this.gamepad.firePressed ||
       queued
     );
   }
@@ -872,6 +873,8 @@ export default class GameScene extends Phaser.Scene {
         this.player.sprite.body.moves = true;
         this.player.sprite.setVisible(true);
         this.player.setHurtImmunity(1.5);
+        // Power-ups don't survive a lost life
+        this.setFirePower(false);
         this.isRespawning = false;
         this.cameras.main.fadeIn(300);
       });
@@ -1303,12 +1306,13 @@ export default class GameScene extends Phaser.Scene {
       // Update player
       this.player.update(this.getPlayerInputState(), dt);
 
-    if (this.shouldFire()) {
-      this.tryFireball();
+      if (this.shouldFire()) {
+        this.tryFireball();
+      }
     }
+
     this.fireballs.update(dt);
-    }
-    
+
     // Update enemies
     this.enemies.forEach(enemy => enemy.update(dt));
 
