@@ -67,6 +67,7 @@ export default class GameScene extends Phaser.Scene {
     // Initialize systems
     this.audioManager = new AudioManager(this);
     this.audioManager.resume();
+    this.setupMusic();
     this.particles = new ParticleSystem(this);
     this.isTouchDevice = this.sys.game.device.input.touch;
 
@@ -568,6 +569,7 @@ export default class GameScene extends Phaser.Scene {
     this.goalLocked = false;
     this.goalFlag.setAlpha(1);
     this.showBossBanner('BOSS DEFEATED');
+    this.endBossMusic();
   }
 
   resetBossEncounter() {
@@ -576,6 +578,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.boss.reset();
+    this.setBossMusic(false);
     this.goalLocked = true;
     this.goalFlag.setAlpha(0.35);
     this.updateUI();
@@ -636,6 +639,7 @@ export default class GameScene extends Phaser.Scene {
     }
     
     this.levelComplete = true;
+    this.audioManager.stopMusic();
     this.audioManager.play('complete');
 
     if (hasNextLevel()) {
@@ -656,6 +660,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.lives <= 0) {
       this.gameOver = true;
+      this.audioManager.stopMusic();
       this.showGameOver();
     } else {
       // Respawn at checkpoint or start
@@ -796,6 +801,57 @@ export default class GameScene extends Phaser.Scene {
       this.bossBannerTimer?.remove(false);
       this.touchButtons.forEach(button => button.destroy());
       this.particles?.clear();
+    });
+  }
+
+  setupMusic() {
+    this.bossMusicActive = false;
+    this.audioManager.playMusic('level', { level: this.levelIndex });
+
+    // Keep the loop running under the pause/settings overlays, just quieter.
+    const duck = () => this.audioManager.setMusicDucked(true);
+    const unduck = () => this.audioManager.setMusicDucked(false);
+    this.events.on('pause', duck);
+    this.events.on('resume', unduck);
+    this.events.once('shutdown', () => {
+      this.events.off('pause', duck);
+      this.events.off('resume', unduck);
+      unduck();
+    });
+  }
+
+  setBossMusic(active) {
+    if (this.bossMusicActive === active) return;
+
+    this.bossMusicActive = active;
+    if (active) {
+      this.audioManager.playMusic('boss');
+    } else {
+      this.audioManager.playMusic('level', { level: this.levelIndex });
+    }
+  }
+
+  updateBossMusic() {
+    if (!this.boss || this.bossDefeated) return;
+
+    // Different enter/exit distances so hovering at the edge doesn't flip tracks.
+    const distance = Math.abs(this.player.sprite.x - this.boss.sprite.x);
+    if (distance < 200) {
+      this.setBossMusic(true);
+    } else if (distance > 320) {
+      this.setBossMusic(false);
+    }
+  }
+
+  endBossMusic() {
+    this.bossMusicActive = false;
+    this.audioManager.stopMusic();
+
+    // Let the victory sound play on its own, then bring the level theme back.
+    this.time.delayedCall(2000, () => {
+      if (!this.levelComplete && !this.gameOver) {
+        this.audioManager.playMusic('level', { level: this.levelIndex });
+      }
     });
   }
 
@@ -963,6 +1019,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.boss) {
       this.boss.update(dt, this.player.sprite);
+      this.updateBossMusic();
     }
     
     // Update particles
