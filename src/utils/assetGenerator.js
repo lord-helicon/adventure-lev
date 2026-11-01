@@ -370,6 +370,51 @@ export const createAssets = function() {
   breakCtx.stroke();
   this.textures.addCanvas('tile_breakable', breakCanvas);
 
+  // Falling platform: pale cracked stone that looks unstable
+  const { canvas: fallingCanvas, ctx: fallingCtx } = createCanvas(16, 16);
+  fallingCtx.fillStyle = '#8A8FA8';
+  fallingCtx.fillRect(0, 0, 16, 16);
+  fallingCtx.fillStyle = '#6F7490';
+  fallingCtx.fillRect(0, 8, 16, 8);
+  fallingCtx.fillStyle = '#B4B9D0';
+  fallingCtx.fillRect(0, 0, 16, 3);
+  fallingCtx.strokeStyle = '#3E4160';
+  fallingCtx.lineWidth = 1;
+  fallingCtx.beginPath();
+  fallingCtx.moveTo(5, 3);
+  fallingCtx.lineTo(7, 8);
+  fallingCtx.lineTo(4, 11);
+  fallingCtx.lineTo(6, 16);
+  fallingCtx.moveTo(7, 8);
+  fallingCtx.lineTo(12, 10);
+  fallingCtx.moveTo(11, 3);
+  fallingCtx.lineTo(10, 6);
+  fallingCtx.stroke();
+  this.textures.addCanvas('tile_falling', fallingCanvas);
+
+  // Spikes: the sharp part fills the lower half of the tile, matching the hitbox
+  const { canvas: spikesCanvas, ctx: spikesCtx } = createCanvas(16, 16);
+  spikesCtx.fillStyle = '#4A4E69';
+  spikesCtx.fillRect(0, 14, 16, 2);
+  for (let i = 0; i < 2; i++) {
+    const baseX = i * 8;
+    spikesCtx.fillStyle = '#C9CCE0';
+    spikesCtx.beginPath();
+    spikesCtx.moveTo(baseX, 14);
+    spikesCtx.lineTo(baseX + 4, 6);
+    spikesCtx.lineTo(baseX + 8, 14);
+    spikesCtx.closePath();
+    spikesCtx.fill();
+    spikesCtx.fillStyle = '#7C80A0';
+    spikesCtx.beginPath();
+    spikesCtx.moveTo(baseX + 4, 6);
+    spikesCtx.lineTo(baseX + 8, 14);
+    spikesCtx.lineTo(baseX + 4, 14);
+    spikesCtx.closePath();
+    spikesCtx.fill();
+  }
+  this.textures.addCanvas('tile_spikes', spikesCanvas);
+
   // Spring
   const { canvas: springCanvas, ctx: springCtx } = createCanvas(16, 12);
   springCtx.fillStyle = '#FF6347';
