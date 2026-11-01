@@ -51,13 +51,23 @@ export default class FireballManager {
 
   /**
    * Register collisions with level geometry. Called from GameScene once the
-   * platform groups exist.
+   * platforms exist. Each entry is a group, an array of tiles, or
+   * `{ targets, process }` when some tiles should be ignored (e.g. a falling
+   * platform that has let go).
    */
-  setupCollisions(platformGroups) {
-    platformGroups.forEach(platforms => {
-      this.scene.physics.add.collider(this.group, platforms, (fireball, tile) => {
-        this.handleSolidHit(fireball);
-      });
+  setupCollisions(solids) {
+    solids.forEach(solid => {
+      const { targets, process = null } = solid.targets ? solid : { targets: solid };
+
+      if (Array.isArray(targets) && targets.length === 0) return;
+
+      // Collider callbacks may swap argument order, so identify the fireball by flag
+      this.scene.physics.add.collider(
+        this.group,
+        targets,
+        (a, b) => this.handleSolidHit(a.isFireball ? a : b),
+        process && ((a, b) => process(a.isFireball ? b : a))
+      );
     });
   }
 

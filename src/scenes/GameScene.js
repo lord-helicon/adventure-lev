@@ -812,7 +812,15 @@ export default class GameScene extends Phaser.Scene {
 
   setupFireballs() {
     this.fireballs = new FireballManager(this);
-    this.fireballs.setupCollisions([this.platforms, this.breakablePlatforms]);
+    this.fireballs.setupCollisions([
+      this.platforms,
+      this.breakablePlatforms,
+      this.movingPlatforms.flatMap(platform => platform.tiles),
+      {
+        targets: this.fallingPlatforms.flatMap(platform => platform.tiles),
+        process: tile => tile.fallingPlatform.state !== 'falling',
+      },
+    ]);
 
     // Overlap callbacks may swap argument order, so identify the fireball by flag
     const split = (a, b) => (a.isFireball ? [a, b] : [b, a]);
