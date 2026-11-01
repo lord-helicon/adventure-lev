@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { abandonRun } from '../utils/runState.js';
 
 /**
  * Pause Scene - Overlay for paused game
@@ -89,8 +88,8 @@ export default class PauseScene extends Phaser.Scene {
       return;
     }
 
+    // Keep the saved run so the menu can offer CONTINUE
     this.isTransitioning = true;
-    abandonRun();
     this.scene.stop('GameScene');
     this.scene.stop();
     this.scene.start('MenuScene');

@@ -40,7 +40,10 @@ export default class Player {
     this.invincibleTimer = 0;
     this.speedBoost = false;
     this.speedBoostTimer = 0;
-    
+
+    // Post-respawn damage immunity
+    this.hurtImmunityTimer = 0;
+
     // Create animations
     this.createAnimations();
   }
@@ -154,6 +157,13 @@ export default class Player {
         this.setSpeedBoost(false);
       }
     }
+
+    if (this.hurtImmunityTimer > 0) {
+      this.hurtImmunityTimer -= dt;
+      if (!this.invincible) {
+        this.sprite.setAlpha(this.hurtImmunityTimer > 0 && Math.floor(this.scene.time.now / 80) % 2 ? 0.3 : 1);
+      }
+    }
   }
 
   updateAnimation() {
@@ -225,6 +235,20 @@ export default class Player {
     if (active) {
       this.speedBoostTimer = duration;
     }
+  }
+
+  /**
+   * Grant temporary damage immunity (e.g. after respawning)
+   */
+  setHurtImmunity(duration) {
+    this.hurtImmunityTimer = duration;
+  }
+
+  /**
+   * Whether enemy contact should currently cost a life
+   */
+  canBeHurt() {
+    return !this.invincible && this.hurtImmunityTimer <= 0;
   }
 
   /**

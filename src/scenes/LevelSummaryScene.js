@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { getLevelData } from '../data/levelData.js';
-import { abandonRun, advanceLevel } from '../utils/runState.js';
+import { advanceLevel } from '../utils/runState.js';
 import { getBestScore } from '../utils/storage.js';
 
 export default class LevelSummaryScene extends Phaser.Scene {
@@ -105,8 +105,9 @@ export default class LevelSummaryScene extends Phaser.Scene {
       return;
     }
 
+    // Save progress at the next level so CONTINUE resumes there
     this.isTransitioning = true;
-    abandonRun();
+    advanceLevel();
     this.cameras.main.fadeOut(250);
     this.cameras.main.once('camerafadeoutcomplete', () => {
       this.scene.start('MenuScene');
