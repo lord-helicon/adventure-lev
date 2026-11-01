@@ -40,6 +40,7 @@ export default class GameScene extends Phaser.Scene {
     this.levelComplete = false;
     this.gameOver = false;
     this.isTransitioning = false;
+    this.isRespawning = false;
     this.checkpointPos = null;
     this.enemies = [];
     this.movingPlatforms = [];
@@ -172,14 +173,17 @@ export default class GameScene extends Phaser.Scene {
     // Create checkpoints
     this.checkpoints = this.physics.add.staticGroup();
     this.levelData.checkpoints.forEach(checkpoint => {
-      const c = this.checkpoints.create(checkpoint.x, checkpoint.y, 'checkpoint');
-      c.setOrigin(0);
+      // Level data positions assume a 16px-tall marker; anchor the 24px sprite by its base instead
+      const c = this.checkpoints.create(checkpoint.x, checkpoint.y + 16, 'checkpoint');
+      c.setOrigin(0, 1);
       c.refreshBody();
       c.activated = false;
     });
-    
-    // Create goal
+
+    // Create goal (top-left origin like the other level pieces, so it stands on the ground)
     this.goalFlag = this.physics.add.staticSprite(this.levelData.goal.x, this.levelData.goal.y, 'flag');
+    this.goalFlag.setOrigin(0);
+    this.goalFlag.refreshBody();
     this.goalFlag.body.setSize(8, 32);
 
     if (this.levelData.boss) {
@@ -209,7 +213,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   createCoins() {
-    this.coins = this.physics.add.group();
+    this.coins = this.physics.add.group({ allowGravity: false, immovable: true });
 
     if (!this.anims.exists('coin_spin')) {
       this.anims.create({
@@ -236,7 +240,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   createPowerups() {
-    this.powerups = this.physics.add.group();
+    this.powerups = this.physics.add.group({ allowGravity: false, immovable: true });
 
     this.levelData.powerups.forEach(powerup => {
       const sprite = this.powerups.create(powerup.x, powerup.y, `powerup_${powerup.type}`);
@@ -264,22 +268,29 @@ export default class GameScene extends Phaser.Scene {
       );
       tile.setOrigin(0);
       tile.body.setImmovable(true);
+      tile.body.pushable = false;
       tile.body.allowGravity = false;
+      // Arcade carries a riding body along with an immovable body's horizontal motion
+      tile.body.setFriction(1, 0);
       tiles.push(tile);
     }
-    
+
+    const moveX = platformData.moveX || 0;
+    const moveY = platformData.moveY || 0;
+    const maxOffset = Math.sqrt(moveX ** 2 + moveY ** 2);
+
+    // Platforms travel between their start position and start + (moveX, moveY)
     const platform = {
       tiles: tiles,
       startX: platformData.x,
       startY: platformData.y,
-      moveX: platformData.moveX || 0,
-      moveY: platformData.moveY || 0,
-      maxOffset: Math.sqrt((platformData.moveX || 0) ** 2 + (platformData.moveY || 0) ** 2),
+      dirX: maxOffset ? moveX / maxOffset : 0,
+      dirY: maxOffset ? moveY / maxOffset : 0,
+      maxOffset,
       speed: platformData.speed || 30,
       direction: 1,
-      offset: 0
     };
-    
+
     this.movingPlatforms.push(platform);
   }
 
@@ -380,7 +391,9 @@ export default class GameScene extends Phaser.Scene {
   getPlayerInputState() {
     this.inputState.left.isDown = this.cursors.left.isDown || this.layoutKeys.left?.isDown || this.touchControls.left;
     this.inputState.right.isDown = this.cursors.right.isDown || this.layoutKeys.right?.isDown || this.touchControls.right;
-    this.inputState.space.isDown = this.cursors.space.isDown || this.layoutKeys.jump?.isDown || this.touchControls.jump;
+    // Up also jumps (see shouldQueueJump), so it must count as "held" or the jump is cut immediately
+    this.inputState.space.isDown = this.cursors.space.isDown || this.cursors.up.isDown ||
+      this.layoutKeys.jump?.isDown || this.touchControls.jump;
     return this.inputState;
   }
 
@@ -395,8 +408,13 @@ export default class GameScene extends Phaser.Scene {
   setupCollisions() {
     // Player collisions
     this.physics.add.collider(this.player.sprite, this.platforms);
-    this.physics.add.collider(this.player.sprite, this.breakablePlatforms, 
-      (player, tile) => this.hitBreakable(tile));
+    // The process callback runs before separation zeroes the velocity, so record the impact speed there
+    this.physics.add.collider(this.player.sprite, this.breakablePlatforms,
+      (player, tile) => this.hitBreakable(tile),
+      player => {
+        this.breakableImpactVelocityY = player.body.velocity.y;
+        return true;
+      });
     
     this.setupMovingPlatformCollisions();
     
@@ -439,16 +457,17 @@ export default class GameScene extends Phaser.Scene {
   }
 
   setupMovingPlatformCollisions() {
-    this.movingPlatforms.forEach(platform => {
-      platform.tiles.forEach(tile => {
-        this.physics.add.collider(
-          this.player.sprite,
-          tile,
-          null,
-          () => this.player.sprite.body.velocity.y >= 0
-        );
-      });
-    });
+    const tiles = this.movingPlatforms.flatMap(platform => platform.tiles);
+
+    if (tiles.length === 0) {
+      return;
+    }
+
+    // One-way: only collide when the player was above the platform top on the previous step.
+    // Comparing positions (not velocity) keeps the player on platforms that are moving upward.
+    this.physics.add.collider(this.player.sprite, tiles, null, (player, tile) =>
+      player.body.prev.y + player.body.height <= tile.body.prev.y + 4
+    );
   }
 
   setupEnemyCollisions() {
@@ -459,11 +478,15 @@ export default class GameScene extends Phaser.Scene {
   }
 
   hitBreakable(tile) {
-    // Only break if hitting from above with enough force
-    if (this.player.sprite.body.touching.down && this.player.sprite.body.velocity.y > 50) {
+    const body = this.player.sprite.body;
+    // Break when bumped from below, or when landed on from a hard fall
+    const bumpedFromBelow = body.touching.up && this.breakableImpactVelocityY < 0;
+    const stompedFromAbove = body.touching.down && this.breakableImpactVelocityY > 200;
+
+    if (bumpedFromBelow || stompedFromAbove) {
       this.audioManager.play('break');
       this.particles.createExplosion(tile.x + 8, tile.y + 8, 6);
-      tile.destroy();
+      tile.disableBody(true, true);
     }
   }
 
@@ -491,7 +514,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   hitEnemy(player, enemySprite) {
-    if (this.levelComplete || this.gameOver) return;
+    if (this.levelComplete || this.gameOver || this.isRespawning) return;
     
     const enemy = this.enemies.find(e => e.sprite === enemySprite);
     if (!enemy || enemy.isDead) return;
@@ -502,13 +525,13 @@ export default class GameScene extends Phaser.Scene {
       enemy.stomp();
       this.score = addScore(100);
       this.updateUI();
-    } else if (!this.player.invincible) {
+    } else if (this.player.canBeHurt()) {
       this.playerDeath();
     }
   }
 
   hitBoss(player, bossSprite) {
-    if (!this.boss || this.boss.isDefeated || this.levelComplete || this.gameOver) {
+    if (!this.boss || this.boss.isDefeated || this.levelComplete || this.gameOver || this.isRespawning) {
       return;
     }
 
@@ -532,7 +555,7 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (!this.player.invincible) {
+    if (this.player.canBeHurt()) {
       this.playerDeath();
     }
   }
@@ -582,7 +605,7 @@ export default class GameScene extends Phaser.Scene {
     
     checkpoint.activated = true;
     checkpoint.setTexture('checkpoint_active');
-    this.checkpointPos = { x: checkpoint.x + 8, y: checkpoint.y - 10 };
+    this.checkpointPos = { x: checkpoint.x + 8, y: checkpoint.y - checkpoint.height };
     
     this.audioManager.play('checkpoint');
     this.particles.createSparkles(checkpoint.x + 8, checkpoint.y);
@@ -621,24 +644,33 @@ export default class GameScene extends Phaser.Scene {
   }
 
   playerDeath() {
-    if (this.gameOver || this.levelComplete) return;
-    
+    // Overlap callbacks fire every frame, so guard against losing several lives to one hit
+    if (this.gameOver || this.levelComplete || this.isRespawning) return;
+
     this.lives = loseLife(1);
     this.audioManager.play('death');
     this.particles.createExplosion(this.player.x, this.player.y);
-    
+
     if (this.lives <= 0) {
       this.gameOver = true;
       this.showGameOver();
     } else {
       // Respawn at checkpoint or start
       const respawnPos = this.checkpointPos || this.levelData.playerStart;
+      this.isRespawning = true;
+      this.player.sprite.setVelocity(0, 0);
+      this.player.sprite.body.moves = false;
+      this.player.sprite.setVisible(false);
       this.resetBossEncounter();
       this.cameras.main.shake(200, 0.01);
       this.cameras.main.fadeOut(300);
       this.cameras.main.once('camerafadeoutcomplete', () => {
         this.player.sprite.setPosition(respawnPos.x, respawnPos.y);
         this.player.sprite.setVelocity(0, 0);
+        this.player.sprite.body.moves = true;
+        this.player.sprite.setVisible(true);
+        this.player.setHurtImmunity(1.5);
+        this.isRespawning = false;
         this.cameras.main.fadeIn(300);
       });
     }
@@ -821,7 +853,7 @@ export default class GameScene extends Phaser.Scene {
     levelsCleared.setScrollFactor(0);
     levelsCleared.setDepth(201);
 
-    const prompt = this.add.text(160, 132, 'Press ENTER for Menu', {
+    const prompt = this.add.text(160, 132, 'ENTER / TAP for Menu', {
       fontSize: '10px',
       fill: '#AAAAAA',
       fontFamily: '"Courier New", monospace',
@@ -830,9 +862,28 @@ export default class GameScene extends Phaser.Scene {
     prompt.setScrollFactor(0);
     prompt.setDepth(201);
 
-    this.input.keyboard.once('keydown-ENTER', () => {
-      this.scene.start('MenuScene');
+    this.onConfirm(() => this.scene.start('MenuScene'));
+  }
+
+  /**
+   * Run `callback` once on ENTER or a tap. Returns the guarded trigger so it can also be fired by a timer.
+   */
+  onConfirm(callback) {
+    let done = false;
+    const confirm = () => {
+      if (done) return;
+      done = true;
+      callback();
+    };
+
+    this.input.keyboard.once('keydown-ENTER', confirm);
+    this.input.once('pointerdown', confirm);
+    this.events.once('shutdown', () => {
+      this.input.keyboard.off('keydown-ENTER', confirm);
+      this.input.off('pointerdown', confirm);
     });
+
+    return confirm;
   }
 
   showGameOver() {
@@ -852,37 +903,38 @@ export default class GameScene extends Phaser.Scene {
     title.setOrigin(0.5);
     title.setScrollFactor(0);
     title.setDepth(201);
-    
-    this.input.keyboard.once('keydown-ENTER', () => {
+
+    // Advance automatically so touch players are never stuck; ENTER or a tap skips the wait
+    const showGameOverScreen = this.onConfirm(() => {
       this.scene.start('GameOverScene', { score: this.score });
     });
+    this.time.delayedCall(1500, showGameOverScreen);
   }
 
-  updateMovingPlatforms(dt) {
+  updateMovingPlatforms() {
     for (let i = 0; i < this.movingPlatforms.length; i++) {
       const platform = this.movingPlatforms[i];
-      const maxOffset = platform.maxOffset;
 
-      if (!maxOffset) {
+      if (!platform.maxOffset) {
         continue;
       }
 
-      platform.offset += platform.speed * platform.direction * dt;
+      // Distance travelled along the movement axis, measured from the lead tile
+      const lead = platform.tiles[0];
+      const offset = (lead.x - platform.startX) * platform.dirX + (lead.y - platform.startY) * platform.dirY;
 
-      if (Math.abs(platform.offset) > maxOffset) {
-        platform.direction *= -1;
-        platform.offset = Math.sign(platform.offset) * maxOffset;
+      if (offset >= platform.maxOffset) {
+        platform.direction = -1;
+      } else if (offset <= 0) {
+        platform.direction = 1;
       }
 
-      const ratio = platform.offset / maxOffset || 0;
-      const moveX = platform.moveX * ratio;
-      const moveY = platform.moveY * ratio;
+      // Velocity-driven so physics can carry the rider
+      const vx = platform.dirX * platform.speed * platform.direction;
+      const vy = platform.dirY * platform.speed * platform.direction;
 
       for (let tileIndex = 0; tileIndex < platform.tiles.length; tileIndex++) {
-        const tile = platform.tiles[tileIndex];
-        tile.x = platform.startX + tileIndex * 16 + moveX;
-        tile.y = platform.startY + moveY;
-        tile.body.updateFromGameObject();
+        platform.tiles[tileIndex].body.setVelocity(vx, vy);
       }
     }
   }
@@ -892,12 +944,14 @@ export default class GameScene extends Phaser.Scene {
     
     if (this.levelComplete || this.gameOver) return;
 
-    if (this.shouldQueueJump()) {
-      this.player.jump();
+    if (!this.isRespawning) {
+      if (this.shouldQueueJump()) {
+        this.player.jump();
+      }
+
+      // Update player
+      this.player.update(this.getPlayerInputState(), dt);
     }
-    
-    // Update player
-    this.player.update(this.getPlayerInputState(), dt);
     
     // Update enemies
     this.enemies.forEach(enemy => enemy.update(dt));
@@ -910,7 +964,7 @@ export default class GameScene extends Phaser.Scene {
     this.particles.update(dt);
     
     // Update moving platforms
-    this.updateMovingPlatforms(dt);
+    this.updateMovingPlatforms();
     
     // Update parallax
     const scrollX = this.cameras.main.scrollX;

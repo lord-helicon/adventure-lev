@@ -67,9 +67,13 @@ export default class Boss {
 
     this.invulnerableTimer = Math.max(0, this.invulnerableTimer - dt);
 
-    const distanceFromHome = Math.abs(this.sprite.x - this.homeX);
-    if (distanceFromHome >= this.patrolDistance) {
-      this.turnAround();
+    // Direction from position, so an overshoot can't flip it back and forth
+    if (this.sprite.x <= this.homeX - this.patrolDistance) {
+      this.facingRight = true;
+      this.sprite.setVelocityX(this.speed);
+    } else if (this.sprite.x >= this.homeX + this.patrolDistance) {
+      this.facingRight = false;
+      this.sprite.setVelocityX(-this.speed);
     }
 
     if (this.sprite.body.blocked.left) {
@@ -96,11 +100,6 @@ export default class Boss {
     }
 
     this.sprite.setFlipX(this.facingRight);
-  }
-
-  turnAround() {
-    this.facingRight = !this.facingRight;
-    this.sprite.setVelocityX(this.facingRight ? this.speed : -this.speed);
   }
 
   takeStomp() {

@@ -11,7 +11,8 @@ export default class Enemy {
     this.jumpTimer = 0.9;
     this.diveState = 'patrol';
     this.diveTarget = { x, y };
-    
+    this.steer = new Phaser.Math.Vector2();
+
     // Create sprite based on type
     const textureKey = this.getTextureKey();
     this.sprite = scene.physics.add.sprite(x, y, textureKey);
@@ -145,7 +146,38 @@ export default class Enemy {
   }
 
   startPatrol() {
-    this.sprite.setVelocityX(-this.patrolSpeed);
+    this.setDirection(false);
+  }
+
+  setDirection(facingRight) {
+    this.facingRight = facingRight;
+    this.sprite.setVelocityX(facingRight ? this.patrolSpeed : -this.patrolSpeed);
+  }
+
+  /**
+   * Keep the enemy inside its patrol range. Direction is derived from position,
+   * so a long frame that overshoots the boundary cannot flip it twice.
+   */
+  updatePatrolDirection() {
+    if (this.sprite.x <= this.patrolStartX - this.patrolDistance) {
+      this.setDirection(true);
+    } else if (this.sprite.x >= this.patrolStartX + this.patrolDistance) {
+      this.setDirection(false);
+    }
+  }
+
+  /**
+   * Probe just past the leading foot for solid level geometry
+   */
+  hasGroundAhead() {
+    const body = this.sprite.body;
+    const probeX = this.facingRight ? body.right + 1 : body.left - 3;
+    const bodies = this.scene.physics.overlapRect(probeX, body.bottom + 1, 2, 4, false, true);
+
+    return bodies.some(found =>
+      this.scene.platforms.contains(found.gameObject) ||
+      this.scene.breakablePlatforms.contains(found.gameObject)
+    );
   }
 
   update(dt) {
@@ -163,32 +195,24 @@ export default class Enemy {
   }
 
   updateGroundBehavior() {
-    // Check if we should turn around at patrol boundaries
-    const distance = Math.abs(this.sprite.x - this.patrolStartX);
-    
-    if (distance >= this.patrolDistance) {
-      this.turnAround();
+    const body = this.sprite.body;
+    const isGrounded = body.blocked.down || body.touching.down;
+
+    this.updatePatrolDirection();
+
+    // Turn around at walls and at platform edges
+    if (body.blocked.left) {
+      this.setDirection(true);
+    } else if (body.blocked.right) {
+      this.setDirection(false);
+    } else if (isGrounded && !this.hasGroundAhead()) {
+      this.setDirection(!this.facingRight);
+    } else {
+      // Re-apply each frame; tile seams can zero horizontal velocity
+      this.setDirection(this.facingRight);
     }
-    
-    // Also turn around if hitting a wall
-    if (this.sprite.body.blocked.left) {
-      this.facingRight = true;
-      this.sprite.setVelocityX(this.patrolSpeed);
-      this.sprite.setFlipX(true);
-    } else if (this.sprite.body.blocked.right) {
-      this.facingRight = false;
-      this.sprite.setVelocityX(-this.patrolSpeed);
-      this.sprite.setFlipX(false);
-    }
-    
-    // Update facing direction based on velocity
-    if (this.sprite.body.velocity.x > 0) {
-      this.facingRight = true;
-      this.sprite.setFlipX(true);
-    } else if (this.sprite.body.velocity.x < 0) {
-      this.facingRight = false;
-      this.sprite.setFlipX(false);
-    }
+
+    this.sprite.setFlipX(this.facingRight);
   }
 
   updateFlyingBehavior(dt) {
@@ -200,11 +224,9 @@ export default class Enemy {
     this.sprite.body.allowGravity = false;
     
     // Horizontal patrol
-    const distance = Math.abs(this.sprite.x - this.patrolStartX);
-    if (distance >= this.patrolDistance) {
-      this.turnAround();
-    }
-    
+    this.updatePatrolDirection();
+    this.setDirection(this.facingRight);
+
     // Vertical sine wave movement
     const waveOffset = Math.sin(this.animTimer * 3) * 6;
     this.sprite.y = this.baseY + waveOffset;
@@ -259,7 +281,7 @@ export default class Enemy {
     }
 
     if (this.diveState === 'dive') {
-      const diveVector = new Phaser.Math.Vector2(
+      const diveVector = this.steer.set(
         this.diveTarget.x - this.sprite.x,
         this.diveTarget.y - this.sprite.y
       );
@@ -280,7 +302,7 @@ export default class Enemy {
       return;
     }
 
-    const returnVector = new Phaser.Math.Vector2(this.patrolStartX - this.sprite.x, this.baseY - this.sprite.y);
+    const returnVector = this.steer.set(this.patrolStartX - this.sprite.x, this.baseY - this.sprite.y);
 
     if (returnVector.lengthSq() > 0) {
       returnVector.normalize().scale(80);
@@ -292,17 +314,6 @@ export default class Enemy {
       this.diveState = 'patrol';
       this.sprite.setPosition(this.patrolStartX, this.baseY);
       this.startPatrol();
-    }
-  }
-
-  turnAround() {
-    this.facingRight = !this.facingRight;
-    this.sprite.setVelocityX(this.facingRight ? this.patrolSpeed : -this.patrolSpeed);
-    this.sprite.setFlipX(this.facingRight);
-    
-    // Reset patrol start to prevent getting stuck
-    if (Math.abs(this.sprite.x - this.patrolStartX) > this.patrolDistance * 1.5) {
-      this.patrolStartX = this.sprite.x;
     }
   }
 
