@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import AudioManager from '../utils/AudioManager.js';
+import { createGamepadInput } from '../utils/gamepadInput.js';
 import { getKeyboardLayoutLabel, getNextKeyboardLayout } from '../utils/inputConfig.js';
 import { loadSettings, saveSettings } from '../utils/storage.js';
 
@@ -53,7 +54,7 @@ export default class SettingsScene extends Phaser.Scene {
       return text;
     });
 
-    const hint = this.add.text(160, 160, 'UP/DOWN: SELECT  LEFT/RIGHT: ADJUST  ESC: BACK', {
+    const hint = this.add.text(160, 160, 'UP/DOWN: SELECT  LEFT/RIGHT: ADJUST  ESC/B: BACK', {
       fontSize: '8px',
       fill: '#888888',
       fontFamily: '"Courier New", monospace',
@@ -75,6 +76,16 @@ export default class SettingsScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-RIGHT', this.handleRight);
     this.input.keyboard.on('keydown-ENTER', this.handleEnter);
     this.input.keyboard.on('keydown-ESC', this.handleBack);
+
+    createGamepadInput(this, {
+      up: this.handleUp,
+      down: this.handleDown,
+      left: this.handleLeft,
+      right: this.handleRight,
+      confirm: this.handleEnter,
+      back: this.handleBack,
+      pause: this.handleBack,
+    });
 
     this.events.once('shutdown', () => {
       this.input.keyboard.off('keydown-UP', this.handleUp);

@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import { getLevelData } from '../data/levelData.js';
+import { createGamepadInput } from '../utils/gamepadInput.js';
 import { advanceLevel } from '../utils/runState.js';
 import { getBestScore } from '../utils/storage.js';
+import { formatTime, RANK_COLORS } from '../utils/rank.js';
 
 export default class LevelSummaryScene extends Phaser.Scene {
   constructor() {
@@ -12,6 +14,9 @@ export default class LevelSummaryScene extends Phaser.Scene {
     this.levelIndex = data.levelIndex;
     this.score = data.score;
     this.lives = data.lives;
+    this.coinCount = data.coinCount || 0;
+    // Fallback keeps the scene usable if started without stats (e.g. from the console)
+    this.stats = data.stats || { time: 0, parTime: 0, coins: 0, totalCoins: 0, secrets: 0, totalSecrets: 0, deaths: 0, rank: 'C' };
     this.nextLevel = getLevelData(data.levelIndex + 1);
     this.bestScore = getBestScore();
     this.isTransitioning = false;
@@ -20,7 +25,7 @@ export default class LevelSummaryScene extends Phaser.Scene {
   create() {
     this.add.rectangle(160, 90, 320, 180, 0x000000, 0.85);
 
-    const title = this.add.text(160, 34, `LEVEL ${this.levelIndex + 1} COMPLETE!`, {
+    const title = this.add.text(160, 18, `LEVEL ${this.levelIndex + 1} COMPLETE!`, {
       fontSize: '18px',
       fill: '#FFD700',
       fontFamily: '"Courier New", monospace',
@@ -28,35 +33,60 @@ export default class LevelSummaryScene extends Phaser.Scene {
     });
     title.setOrigin(0.5);
 
-    const nextLabel = this.add.text(160, 62, `NEXT: ${this.nextLevel.name.toUpperCase()}`, {
+    const nextLabel = this.add.text(160, 38, `NEXT: ${this.nextLevel.name.toUpperCase()}`, {
       fontSize: '10px',
       fill: '#AAAAAA',
       fontFamily: '"Courier New", monospace',
     });
     nextLabel.setOrigin(0.5);
 
-    const scoreText = this.add.text(160, 84, `RUN SCORE: ${this.score}`, {
-      fontSize: '12px',
+    // Left column: this level's stats. Right: the rank. Below: run-wide totals.
+    const stats = this.stats;
+    const statLines = [
+      `TIME:    ${formatTime(stats.time)} (PAR ${formatTime(stats.parTime)})`,
+      `COINS:   ${stats.coins}/${stats.totalCoins}`,
+      `SECRETS: ${stats.totalSecrets > 0 ? `${stats.secrets}/${stats.totalSecrets}` : '-'}`,
+      `DEATHS:  ${stats.deaths}`,
+    ];
+
+    statLines.forEach((line, i) => {
+      this.add.text(36, 56 + i * 14, line, {
+        fontSize: '10px',
+        fill: '#FFFFFF',
+        fontFamily: '"Courier New", monospace',
+      });
+    });
+
+    const rankCaption = this.add.text(256, 56, 'RANK', {
+      fontSize: '10px',
+      fill: '#AAAAAA',
+      fontFamily: '"Courier New", monospace',
+    });
+    rankCaption.setOrigin(0.5, 0);
+
+    const rankText = this.add.text(256, 84, stats.rank, {
+      fontSize: '32px',
+      fill: RANK_COLORS[stats.rank],
+      fontFamily: '"Courier New", monospace',
+      fontStyle: 'bold',
+    });
+    rankText.setOrigin(0.5);
+
+    const scoreText = this.add.text(160, 118, `SCORE: ${this.score}   LIVES: ${this.lives}   COINS: ${this.coinCount}`, {
+      fontSize: '10px',
       fill: '#FFFFFF',
       fontFamily: '"Courier New", monospace',
     });
     scoreText.setOrigin(0.5);
 
-    const livesText = this.add.text(160, 100, `LIVES REMAINING: ${this.lives}`, {
-      fontSize: '10px',
-      fill: '#FFFFFF',
-      fontFamily: '"Courier New", monospace',
-    });
-    livesText.setOrigin(0.5);
-
-    const bestScoreText = this.add.text(160, 116, `BEST SCORE: ${this.bestScore}`, {
+    const bestScoreText = this.add.text(160, 130, `BEST SCORE: ${this.bestScore}`, {
       fontSize: '10px',
       fill: '#FFD700',
       fontFamily: '"Courier New", monospace',
     });
     bestScoreText.setOrigin(0.5);
 
-    const continueText = this.add.text(160, 140, 'ENTER: NEXT LEVEL', {
+    const continueText = this.add.text(160, 146, 'ENTER: NEXT LEVEL', {
       fontSize: '10px',
       fill: '#FFFFFF',
       fontFamily: '"Courier New", monospace',
@@ -65,7 +95,7 @@ export default class LevelSummaryScene extends Phaser.Scene {
     continueText.setInteractive();
     continueText.on('pointerdown', () => this.goToNextLevel());
 
-    const menuText = this.add.text(160, 154, 'M: MENU', {
+    const menuText = this.add.text(160, 160, 'M: MENU', {
       fontSize: '10px',
       fill: '#AAAAAA',
       fontFamily: '"Courier New", monospace',
@@ -78,6 +108,7 @@ export default class LevelSummaryScene extends Phaser.Scene {
     this.handleMenu = () => this.goToMenu();
     this.input.keyboard.on('keydown-ENTER', this.handleContinue);
     this.input.keyboard.on('keydown-M', this.handleMenu);
+    createGamepadInput(this, { confirm: this.handleContinue, back: this.handleMenu });
 
     this.events.once('shutdown', () => {
       this.input.keyboard.off('keydown-ENTER', this.handleContinue);

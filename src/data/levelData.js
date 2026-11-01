@@ -1,9 +1,9 @@
 /**
  * Campaign level data.
  */
-const PLATFORM_TYPES = new Set(['grass', 'dirt', 'moving', 'breakable']);
+const PLATFORM_TYPES = new Set(['grass', 'dirt', 'moving', 'breakable', 'falling']);
 const ENEMY_TYPES = new Set(['ground', 'flying', 'hopper', 'swooper']);
-const POWERUP_TYPES = new Set(['star', 'speed', 'life']);
+const POWERUP_TYPES = new Set(['star', 'speed', 'life', 'fire']);
 
 const campaignLevels = [
   {
@@ -68,6 +68,7 @@ const campaignLevels = [
       { x: 830, y: 148 },
     ],
     powerups: [
+      { x: 110, y: 128, type: 'fire' },
       { x: 410, y: 40, type: 'star' },
       { x: 880, y: 40, type: 'speed' },
       { x: 1100, y: 80, type: 'life' },
@@ -136,7 +137,7 @@ const campaignLevels = [
       { x: 1330, y: 130 },
     ],
     enemies: [
-      { x: 78, y: 148, type: 'ground', patrolDistance: 45 },
+      { x: 110, y: 148, type: 'ground', patrolDistance: 30 },
       { x: 278, y: 148, type: 'ground', patrolDistance: 45 },
       { x: 470, y: 146, type: 'hopper', patrolDistance: 35 },
       { x: 744, y: 96, type: 'ground', patrolDistance: 45 },
@@ -151,6 +152,7 @@ const campaignLevels = [
       { x: 980, y: 148 },
     ],
     powerups: [
+      { x: 80, y: 128, type: 'fire' },
       { x: 505, y: 24, type: 'star' },
       { x: 1080, y: 60, type: 'speed' },
       { x: 1272, y: 38, type: 'life' },
@@ -163,6 +165,91 @@ const campaignLevels = [
       { x: 1048, y: 18, width: 88, height: 32, label: 'SKY CACHE' },
     ],
     goal: { x: 1340, y: 128 },
+  },
+  {
+    id: 'crystal-caverns',
+    name: 'Crystal Caverns',
+    width: 1500,
+    height: 180,
+    theme: { skyTint: 0x4a3f7a, mountainTint: 0x8878c0, treeTint: 0x6a5aa0, cloudAlpha: 0.25 },
+    playerStart: { x: 40, y: 100 },
+    platforms: [
+      { x: 0, y: 160, width: 10, type: 'grass' },
+      { x: 224, y: 160, width: 8, type: 'grass' },
+      { x: 544, y: 160, width: 8, type: 'grass' },
+      { x: 880, y: 160, width: 7, type: 'grass' },
+      { x: 1232, y: 160, width: 6, type: 'grass' },
+      { x: 1424, y: 160, width: 5, type: 'grass' },
+      { x: 940, y: 96, width: 4, type: 'grass' },
+      { x: 372, y: 152, width: 3, type: 'falling' },
+      { x: 452, y: 152, width: 3, type: 'falling' },
+      { x: 1008, y: 148, width: 2, type: 'falling' },
+      { x: 1072, y: 140, width: 2, type: 'falling' },
+      { x: 1136, y: 148, width: 2, type: 'falling' },
+      { x: 680, y: 150, width: 3, type: 'moving', moveX: 120, speed: 50 },
+      { x: 1332, y: 152, width: 3, type: 'moving', moveX: 40, speed: 40 },
+      { x: 1264, y: 112, width: 1, type: 'breakable' },
+      { x: 1280, y: 112, width: 1, type: 'breakable' },
+      { x: 0, y: 176, width: 94, type: 'dirt' },
+    ],
+    spikes: [
+      { x: 160, y: 160, width: 4 },
+      { x: 352, y: 160, width: 12 },
+      { x: 672, y: 160, width: 13 },
+      { x: 992, y: 160, width: 15 },
+      { x: 1328, y: 160, width: 6 },
+    ],
+    coins: [
+      { x: 100, y: 130 },
+      { x: 116, y: 130 },
+      { x: 176, y: 112 },
+      { x: 192, y: 104 },
+      { x: 208, y: 112 },
+      { x: 320, y: 130 },
+      { x: 388, y: 124 },
+      { x: 404, y: 124 },
+      { x: 468, y: 124 },
+      { x: 484, y: 124 },
+      { x: 580, y: 130 },
+      { x: 700, y: 122 },
+      { x: 740, y: 122 },
+      { x: 780, y: 122 },
+      { x: 820, y: 122 },
+      { x: 948, y: 70 },
+      { x: 988, y: 70 },
+      { x: 1020, y: 120 },
+      { x: 1084, y: 112 },
+      { x: 1148, y: 120 },
+      { x: 1300, y: 130 },
+      { x: 1360, y: 122 },
+      { x: 1392, y: 122 },
+      { x: 1440, y: 130 },
+    ],
+    enemies: [
+      { x: 110, y: 148, type: 'ground', patrolDistance: 30 },
+      { x: 270, y: 146, type: 'hopper', patrolDistance: 35 },
+      { x: 610, y: 148, type: 'ground', patrolDistance: 40 },
+      { x: 1270, y: 146, type: 'hopper', patrolDistance: 35 },
+      { x: 760, y: 100, type: 'flying', patrolDistance: 60 },
+      { x: 1120, y: 60, type: 'swooper', patrolDistance: 60 },
+      { x: 1372, y: 92, type: 'flying', patrolDistance: 50 },
+    ],
+    springs: [
+      { x: 900, y: 148 },
+    ],
+    powerups: [
+      { x: 366, y: 112, type: 'star' },
+      { x: 1264, y: 96, type: 'speed' },
+      { x: 968, y: 76, type: 'life' },
+    ],
+    checkpoints: [
+      { x: 560, y: 144 },
+      { x: 956, y: 144 },
+    ],
+    secrets: [
+      { x: 936, y: 48, width: 76, height: 52, label: 'CRYSTAL NOOK' },
+    ],
+    goal: { x: 1456, y: 128 },
   },
   {
     id: 'fortress-climb',
@@ -227,7 +314,7 @@ const campaignLevels = [
       { x: 1480, y: 130 },
     ],
     enemies: [
-      { x: 70, y: 148, type: 'ground', patrolDistance: 35 },
+      { x: 100, y: 148, type: 'ground', patrolDistance: 20 },
       { x: 220, y: 148, type: 'ground', patrolDistance: 35 },
       { x: 564, y: 146, type: 'hopper', patrolDistance: 45 },
       { x: 816, y: 148, type: 'ground', patrolDistance: 35 },
@@ -244,6 +331,7 @@ const campaignLevels = [
       { x: 1330, y: 148 },
     ],
     powerups: [
+      { x: 84, y: 128, type: 'fire' },
       { x: 448, y: 26, type: 'star' },
       { x: 1064, y: 8, type: 'speed' },
       { x: 1408, y: 34, type: 'life' },
@@ -351,6 +439,30 @@ export function validateLevelData(data) {
       assertNumber(platform.speed, `platforms[${index}].speed`);
     }
   });
+
+  if (data.spikes !== undefined) {
+    assertArray(data.spikes, 'spikes');
+    data.spikes.forEach((spike, index) => {
+      assertPosition(spike, `spikes[${index}]`);
+      assertNumber(spike.width, `spikes[${index}].width`);
+
+      if (spike.width < 1) {
+        throw new Error(`Invalid level data: spikes[${index}].width must be at least 1.`);
+      }
+    });
+  }
+
+  if (data.theme !== undefined) {
+    if (!data.theme || typeof data.theme !== 'object') {
+      throw new Error('Invalid level data: theme must be an object.');
+    }
+
+    ['skyTint', 'mountainTint', 'treeTint', 'cloudAlpha'].forEach(key => {
+      if (data.theme[key] !== undefined) {
+        assertNumber(data.theme[key], `theme.${key}`);
+      }
+    });
+  }
 
   assertArray(data.coins, 'coins');
   data.coins.forEach((coin, index) => {

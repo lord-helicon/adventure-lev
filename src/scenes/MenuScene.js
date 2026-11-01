@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import AudioManager from '../utils/AudioManager.js';
 import { restoreSavedRun, startNewRun } from '../utils/runState.js';
+import { createGamepadInput } from '../utils/gamepadInput.js';
 import { getBestScore, loadRunProgress } from '../utils/storage.js';
 
 /**
@@ -77,7 +78,7 @@ export default class MenuScene extends Phaser.Scene {
     const instructionText = this.add.text(
       this.cameras.main.centerX,
       176,
-      'ARROWS: Move | SPACE: Jump | ENTER: Select',
+      'ARROWS/PAD: Move | SPACE/A: Jump | ENTER: Select',
       {
         fontSize: '8px',
         fill: '#666666',
@@ -95,8 +96,9 @@ export default class MenuScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-DOWN', this.handleDown);
     this.input.keyboard.on('keydown-ENTER', this.handleSelect);
     this.input.keyboard.on('keydown-SPACE', this.handleSelect);
+    createGamepadInput(this, { up: this.handleUp, down: this.handleDown, confirm: this.handleSelect });
 
-    this.audioManager.startMusic();
+    this.audioManager.playMusic('menu');
   }
 
   buildMenuOptions() {
@@ -194,7 +196,6 @@ export default class MenuScene extends Phaser.Scene {
       this.input.keyboard.off('keydown-DOWN', this.handleDown);
       this.input.keyboard.off('keydown-ENTER', this.handleSelect);
       this.input.keyboard.off('keydown-SPACE', this.handleSelect);
-      this.audioManager.stopMusic();
     });
   }
 

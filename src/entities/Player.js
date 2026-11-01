@@ -33,6 +33,7 @@ export default class Player {
     this.jumpBufferTimer = 0;
     this.isGrounded = false;
     this.wasGrounded = false;
+    this.lastPlatformContact = -Infinity;
     this.isJumping = false;
     
     // Power-up states
@@ -40,6 +41,9 @@ export default class Player {
     this.invincibleTimer = 0;
     this.speedBoost = false;
     this.speedBoostTimer = 0;
+
+    // Fire power lasts for the rest of the level or until a hit removes it
+    this.hasFire = false;
 
     // Post-respawn damage immunity
     this.hurtImmunityTimer = 0;
@@ -95,7 +99,7 @@ export default class Player {
   update(cursors, dt) {
     // Check grounded state
     this.wasGrounded = this.isGrounded;
-    this.isGrounded = this.sprite.body.touching.down;
+    this.isGrounded = this.isOnGround();
     
     // Handle coyote time
     if (this.wasGrounded && !this.isGrounded) {
@@ -189,6 +193,23 @@ export default class Player {
   }
 
   /**
+   * Arcade overlap checks (coins, power-ups, spikes, secret zones...) also set
+   * body.touching.down, so touching can't be trusted for ground detection.
+   * Static ground sets blocked.down; dynamic platforms (moving/falling) report
+   * contact through their collide callbacks via markPlatformContact().
+   */
+  isOnGround() {
+    const body = this.sprite.body;
+    const recentPlatformContact = this.scene.time.now - this.lastPlatformContact < 50;
+
+    return body.blocked.down || (recentPlatformContact && body.velocity.y >= 0);
+  }
+
+  markPlatformContact() {
+    this.lastPlatformContact = this.scene.time.now;
+  }
+
+  /**
    * Queue a jump (jump buffering)
    */
   jump() {
@@ -234,6 +255,19 @@ export default class Player {
     this.speedBoost = active;
     if (active) {
       this.speedBoostTimer = duration;
+    }
+  }
+
+  /**
+   * Toggle fire power. Shown with a colour tint, which can't clash with the
+   * alpha flicker used by star power and hurt immunity.
+   */
+  setFirePower(active) {
+    this.hasFire = active;
+    if (active) {
+      this.sprite.setTint(0xFFAA66);
+    } else {
+      this.sprite.clearTint();
     }
   }
 

@@ -2,18 +2,25 @@ import Phaser from 'phaser';
 import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
 import Boss from '../entities/Boss.js';
+import FireballManager from '../entities/FireballManager.js';
 import ParticleSystem from '../utils/ParticleSystem.js';
 import AudioManager from '../utils/AudioManager.js';
 import { getLevelCount, getLevelData } from '../data/levelData.js';
 import { getKeyboardLayoutBindings, getKeyboardLayoutLabel } from '../utils/inputConfig.js';
 import { loadSettings } from '../utils/storage.js';
+import { createGamepadInput } from '../utils/gamepadInput.js';
+import { computeRank, formatTime, getParTime, RANK_COLORS } from '../utils/rank.js';
 import {
   abandonRun,
+  addCoin,
+  addDeath,
   addLife,
   addScore,
   ensureRunStarted,
+  getRunState,
   hasNextLevel,
   loseLife,
+  recordLevelResult,
   setCurrentLevelIndex,
 } from '../utils/runState.js';
 
@@ -44,14 +51,27 @@ export default class GameScene extends Phaser.Scene {
     this.checkpointPos = null;
     this.enemies = [];
     this.movingPlatforms = [];
+    this.fallingPlatforms = [];
     this.secretZones = [];
     this.discoveredSecrets = new Set();
+    // Run coin total (this.coins is the physics group) and per-level stats for the summary
+    this.coinCount = runState.coins;
+    this.levelCoins = 0;
+    this.levelDeaths = 0;
+    this.levelTime = 0;
     this.boss = null;
     this.bossDefeated = false;
     this.goalLocked = false;
+    // Phaser reuses the scene instance, so conditionally created objects must not leak from the previous level
+    this.bossText = null;
+    this.bossBanner = null;
+    this.bossBannerTimer = null;
+    this.touchHintText = null;
     this.touchControls = { left: false, right: false, jump: false };
     this.touchButtons = [];
     this.touchButtonReleases = [];
+    this.touchFireQueued = false;
+    this.fireButtonParts = [];
     this.isTouchDevice = false;
     this.keyboardLayout = loadSettings().keyboardLayout;
     this.layoutKeys = {};
@@ -66,16 +86,19 @@ export default class GameScene extends Phaser.Scene {
     // Initialize systems
     this.audioManager = new AudioManager(this);
     this.audioManager.resume();
+    this.setupMusic();
     this.particles = new ParticleSystem(this);
     this.isTouchDevice = this.sys.game.device.input.touch;
 
     this.registerSceneCleanup();
+    this.gamepad = createGamepadInput(this, { pause: () => this.pauseGame() });
     
     // Set world bounds
     this.physics.world.setBounds(0, 0, this.levelData.width, this.levelData.height);
     
     // Create parallax background
     this.createParallaxBackground();
+    this.applyLevelTheme();
     
     // Create level
     this.createLevel();
@@ -90,6 +113,7 @@ export default class GameScene extends Phaser.Scene {
     
     // Set up collisions
     this.setupCollisions();
+    this.setupFireballs();
     
     // Input handling
     this.setupInputHandlers();
@@ -135,6 +159,8 @@ export default class GameScene extends Phaser.Scene {
     this.levelData.platforms.forEach(platform => {
       if (platform.type === 'moving') {
         this.createMovingPlatform(platform);
+      } else if (platform.type === 'falling') {
+        this.createFallingPlatform(platform);
       } else if (platform.type === 'breakable') {
         for (let i = 0; i < platform.width; i++) {
           const tile = this.breakablePlatforms.create(
@@ -154,7 +180,8 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     });
-    
+
+    this.createSpikes();
     this.createCoins();
     this.createEnemies();
     
@@ -299,6 +326,7 @@ export default class GameScene extends Phaser.Scene {
     this.handlePause = () => this.pauseGame();
     this.input.keyboard.on('keydown-ESC', this.handlePause);
     this.input.keyboard.on('keydown-P', this.handlePause);
+    this.setupFireInput();
     this.refreshKeyboardLayout();
 
     if (this.isTouchDevice) {
@@ -333,6 +361,16 @@ export default class GameScene extends Phaser.Scene {
       this.player.jump();
       this.touchButtonReleases.push({ pointerId, key: 'jump' });
     }, '10px');
+
+    // FIRE only exists while the player has fire power (see setFirePower)
+    const fireButtonStart = this.touchButtons.length;
+    this.createTouchButton(226, 152, 16, 'FIRE', () => {
+      if (this.player.hasFire) {
+        this.touchFireQueued = true;
+      }
+    }, '8px');
+    this.fireButtonParts = this.touchButtons.slice(fireButtonStart);
+    this.fireButtonParts.forEach(part => part.setVisible(this.player.hasFire));
 
     const pauseButton = this.add.rectangle(294, 30, 34, 18, 0x000000, 0.4);
     pauseButton.setScrollFactor(0);
@@ -389,16 +427,17 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getPlayerInputState() {
-    this.inputState.left.isDown = this.cursors.left.isDown || this.layoutKeys.left?.isDown || this.touchControls.left;
-    this.inputState.right.isDown = this.cursors.right.isDown || this.layoutKeys.right?.isDown || this.touchControls.right;
+    this.inputState.left.isDown = this.cursors.left.isDown || this.layoutKeys.left?.isDown || this.touchControls.left || this.gamepad.left;
+    this.inputState.right.isDown = this.cursors.right.isDown || this.layoutKeys.right?.isDown || this.touchControls.right || this.gamepad.right;
     // Up also jumps (see shouldQueueJump), so it must count as "held" or the jump is cut immediately
     this.inputState.space.isDown = this.cursors.space.isDown || this.cursors.up.isDown ||
-      this.layoutKeys.jump?.isDown || this.touchControls.jump;
+      this.layoutKeys.jump?.isDown || this.touchControls.jump || this.gamepad.jump;
     return this.inputState;
   }
 
   shouldQueueJump() {
     return Boolean(
+      this.gamepad.jumpPressed ||
       Phaser.Input.Keyboard.JustDown(this.cursors.space) ||
       Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
       (this.layoutKeys.jump && Phaser.Input.Keyboard.JustDown(this.layoutKeys.jump))
@@ -417,6 +456,8 @@ export default class GameScene extends Phaser.Scene {
       });
     
     this.setupMovingPlatformCollisions();
+    this.setupFallingPlatformCollisions();
+    this.setupSpikeCollisions();
     
     // Springs
     this.physics.add.overlap(this.player.sprite, this.springs, 
@@ -465,9 +506,177 @@ export default class GameScene extends Phaser.Scene {
 
     // One-way: only collide when the player was above the platform top on the previous step.
     // Comparing positions (not velocity) keeps the player on platforms that are moving upward.
-    this.physics.add.collider(this.player.sprite, tiles, null, (player, tile) =>
-      player.body.prev.y + player.body.height <= tile.body.prev.y + 4
+    this.physics.add.collider(
+      this.player.sprite,
+      tiles,
+      () => this.player.markPlatformContact(),
+      (player, tile) => player.body.prev.y + player.body.height <= tile.body.prev.y + 4
     );
+  }
+
+  applyLevelTheme() {
+    const theme = this.levelData.theme;
+
+    if (!theme) {
+      return;
+    }
+
+    // Tints multiply the shared background textures, so one set of art serves every theme
+    if (theme.skyTint !== undefined) this.bgSky.setTint(theme.skyTint);
+    if (theme.mountainTint !== undefined) this.bgMountains.setTint(theme.mountainTint);
+    if (theme.treeTint !== undefined) this.bgTrees.setTint(theme.treeTint);
+    if (theme.cloudAlpha !== undefined) this.bgClouds.setAlpha(theme.cloudAlpha);
+  }
+
+  createSpikes() {
+    this.spikes = this.physics.add.staticGroup();
+
+    (this.levelData.spikes || []).forEach(spike => {
+      for (let i = 0; i < spike.width; i++) {
+        const tile = this.spikes.create(spike.x + i * 16, spike.y, 'tile_spikes');
+        tile.setOrigin(0);
+        tile.refreshBody();
+        // Only the lower half of the tile hurts, so skimming the tips is forgiven
+        tile.body.setSize(14, 8, false);
+        tile.body.setOffset(1, 8);
+      }
+    });
+  }
+
+  setupSpikeCollisions() {
+    this.physics.add.overlap(this.player.sprite, this.spikes, () => this.hitSpikes());
+  }
+
+  hitSpikes() {
+    if (this.levelComplete || this.gameOver || this.isRespawning) return;
+
+    if (this.player.canBeHurt()) {
+      this.playerDeath();
+    }
+  }
+
+  createFallingPlatform(platformData) {
+    const platform = {
+      tiles: [],
+      startX: platformData.x,
+      startY: platformData.y,
+      state: 'idle',
+      standTimer: 0,
+      standGrace: 0,
+      timer: 0,
+    };
+
+    for (let i = 0; i < platformData.width; i++) {
+      const tile = this.physics.add.sprite(platformData.x + i * 16, platformData.y, 'tile_falling');
+      tile.setOrigin(0);
+      tile.body.setImmovable(true);
+      tile.body.pushable = false;
+      tile.body.allowGravity = false;
+      tile.fallingPlatform = platform;
+      platform.tiles.push(tile);
+    }
+
+    this.fallingPlatforms.push(platform);
+  }
+
+  setupFallingPlatformCollisions() {
+    const tiles = this.fallingPlatforms.flatMap(platform => platform.tiles);
+
+    if (tiles.length === 0) {
+      return;
+    }
+
+    // One-way from above, and a platform that has let go no longer holds anyone
+    this.physics.add.collider(
+      this.player.sprite,
+      tiles,
+      (player, tile) => {
+        // The process callback only admits contact from above, so a collision here means standing on it
+        tile.fallingPlatform.standing = true;
+        this.player.markPlatformContact();
+      },
+      (player, tile) =>
+        tile.fallingPlatform.state !== 'falling' &&
+        player.body.prev.y + player.body.height <= tile.body.prev.y + 4
+    );
+  }
+
+  updateFallingPlatforms(dt) {
+    const FALL_TRIGGER_TIME = 0.4;
+    const SHAKE_TIME = 0.4;
+    const RESPAWN_TIME = 3;
+
+    this.fallingPlatforms.forEach(platform => {
+      if (platform.state === 'idle') {
+        // The collide callback can skip a frame, so allow a short grace before the timer resets
+        platform.standGrace = platform.standing ? 0.1 : platform.standGrace - dt;
+        platform.standTimer = platform.standGrace > 0 ? platform.standTimer + dt : 0;
+
+        if (platform.standTimer >= FALL_TRIGGER_TIME) {
+          platform.state = 'shaking';
+          platform.timer = 0;
+          this.audioManager.play('break');
+        }
+      } else if (platform.state === 'shaking') {
+        platform.timer += dt;
+        const jitter = Math.floor(platform.timer * 40) % 2 === 0 ? 1 : -1;
+
+        platform.tiles.forEach((tile, index) => {
+          tile.x = platform.startX + index * 16 + jitter;
+          tile.body.updateFromGameObject();
+        });
+
+        if (platform.timer >= SHAKE_TIME) {
+          platform.state = 'falling';
+          platform.timer = 0;
+          platform.tiles.forEach((tile, index) => {
+            tile.x = platform.startX + index * 16;
+            tile.body.updateFromGameObject();
+            tile.body.allowGravity = true;
+          });
+        }
+      } else if (platform.state === 'falling') {
+        platform.timer += dt;
+
+        if (platform.tiles.every(tile => tile.y > this.levelData.height + 24)) {
+          platform.tiles.forEach(tile => tile.disableBody(true, true));
+          platform.state = 'gone';
+        }
+      } else if (platform.state === 'gone') {
+        platform.timer += dt;
+
+        if (platform.timer >= RESPAWN_TIME && !this.isPlayerInsideFallingPlatform(platform)) {
+          this.respawnFallingPlatform(platform);
+        }
+      }
+
+      platform.standing = false;
+    });
+  }
+
+  isPlayerInsideFallingPlatform(platform) {
+    const body = this.player.sprite.body;
+    const left = platform.startX;
+    const right = platform.startX + platform.tiles.length * 16;
+
+    // Ignore the top few pixels so a player standing on the spot is nudged up rather than blocking the respawn
+    return body.right > left && body.left < right &&
+      body.bottom > platform.startY + 4 && body.top < platform.startY + 16;
+  }
+
+  respawnFallingPlatform(platform) {
+    platform.tiles.forEach((tile, index) => {
+      tile.enableBody(true, platform.startX + index * 16, platform.startY, true, true);
+      tile.body.allowGravity = false;
+      tile.body.setVelocity(0, 0);
+      tile.setAlpha(0.3);
+      this.tweens.add({ targets: tile, alpha: 1, duration: 300 });
+    });
+
+    platform.state = 'idle';
+    platform.standTimer = 0;
+    platform.standGrace = 0;
+    platform.timer = 0;
   }
 
   setupEnemyCollisions() {
@@ -508,9 +717,42 @@ export default class GameScene extends Phaser.Scene {
   collectCoin(coin) {
     coin.destroy();
     this.score = addScore(10);
+    this.levelCoins += 1;
+
+    const result = addCoin();
+    this.coinCount = result.coins;
+    this.lives = result.lives;
     this.audioManager.play('coin');
     this.particles.createSparkles(coin.x, coin.y);
+
+    if (result.oneUps > 0) {
+      this.showOneUp();
+    }
+
     this.updateUI();
+  }
+
+  showOneUp() {
+    this.audioManager.play('powerup');
+    this.particles.createHearts(this.player.x, this.player.y - 20);
+
+    const pop = this.add.text(this.player.x, this.player.y - 24, '1UP', {
+      fontSize: '10px',
+      fill: '#66FF66',
+      fontFamily: '"Courier New", monospace',
+      fontStyle: 'bold',
+    });
+    pop.setOrigin(0.5);
+    pop.setDepth(110);
+
+    this.tweens.add({
+      targets: pop,
+      y: pop.y - 18,
+      alpha: 0,
+      duration: 900,
+      ease: 'Sine.easeOut',
+      onComplete: () => pop.destroy(),
+    });
   }
 
   hitEnemy(player, enemySprite) {
@@ -525,8 +767,11 @@ export default class GameScene extends Phaser.Scene {
       enemy.stomp();
       this.score = addScore(100);
       this.updateUI();
+    } else if (this.player.invincible) {
+      // Star power defeats enemies on contact
+      this.defeatEnemy(enemy);
     } else if (this.player.canBeHurt()) {
-      this.playerDeath();
+      this.damagePlayer();
     }
   }
 
@@ -555,9 +800,146 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (this.player.canBeHurt()) {
-      this.playerDeath();
+    if (this.player.invincible) {
+      this.bossTakeHit();
+      return;
     }
+
+    if (this.player.canBeHurt()) {
+      this.damagePlayer();
+    }
+  }
+
+  setupFireballs() {
+    this.fireballs = new FireballManager(this);
+    this.fireballs.setupCollisions([
+      this.platforms,
+      this.breakablePlatforms,
+      this.movingPlatforms.flatMap(platform => platform.tiles),
+      {
+        targets: this.fallingPlatforms.flatMap(platform => platform.tiles),
+        process: tile => tile.fallingPlatform.state !== 'falling',
+      },
+    ]);
+
+    // Overlap callbacks may swap argument order, so identify the fireball by flag
+    const split = (a, b) => (a.isFireball ? [a, b] : [b, a]);
+
+    this.physics.add.overlap(
+      this.fireballs.group,
+      this.enemies.map(e => e.sprite),
+      (a, b) => {
+        const [fireball, enemySprite] = split(a, b);
+        this.fireballHitEnemy(fireball, enemySprite);
+      },
+      (a, b) => {
+        const enemy = this.enemies.find(e => e.sprite === split(a, b)[1]);
+        return Boolean(enemy) && !enemy.isDead;
+      }
+    );
+
+    if (this.boss) {
+      this.physics.add.overlap(
+        this.fireballs.group,
+        this.boss.sprite,
+        (a, b) => {
+          this.fireballs.destroyFireball(split(a, b)[0]);
+          this.bossTakeHit();
+        },
+        () => !this.boss.isDefeated
+      );
+    }
+  }
+
+  setupFireInput() {
+    // Fixed keys, independent of the arrows/WASD/ZQSD layout setting
+    this.fireKeys = this.input.keyboard.addKeys({ x: 'X', f: 'F' });
+  }
+
+  shouldFire() {
+    const queued = this.touchFireQueued;
+    this.touchFireQueued = false;
+
+    return Boolean(
+      Phaser.Input.Keyboard.JustDown(this.fireKeys.x) ||
+      Phaser.Input.Keyboard.JustDown(this.fireKeys.f) ||
+      this.gamepad.firePressed ||
+      queued
+    );
+  }
+
+  tryFireball() {
+    if (!this.player.hasFire || this.isRespawning) return;
+
+    const dir = this.player.facingRight ? 1 : -1;
+    // Spawn from the hand; the body sits a couple of pixels below the sprite centre
+    if (this.fireballs.fire(this.player.x + dir * 10, this.player.y + 2, this.player.facingRight)) {
+      this.audioManager.play('fireball');
+    }
+  }
+
+  setFirePower(active) {
+    this.player.setFirePower(active);
+    this.fireButtonParts.forEach(part => part.setVisible(active));
+
+    if (!active) {
+      this.touchFireQueued = false;
+    }
+  }
+
+  defeatEnemy(enemy) {
+    enemy.stomp();
+    this.score = addScore(100);
+    this.updateUI();
+  }
+
+  fireballHitEnemy(fireball, enemySprite) {
+    const enemy = this.enemies.find(e => e.sprite === enemySprite);
+    if (!enemy || enemy.isDead) return;
+
+    this.fireballs.destroyFireball(fireball);
+    this.defeatEnemy(enemy);
+  }
+
+  /**
+   * One point of boss damage from a non-stomp source (fireball, star contact)
+   */
+  bossTakeHit() {
+    if (!this.boss || this.boss.isDefeated || this.levelComplete || this.gameOver) {
+      return false;
+    }
+
+    if (!this.boss.takeHit()) {
+      return false;
+    }
+
+    this.score = addScore(this.boss.isDefeated ? 500 : 200);
+    this.audioManager.play(this.boss.isDefeated ? 'complete' : 'enemy_hit');
+    this.particles.createExplosion(this.boss.sprite.x, this.boss.sprite.y, this.boss.isDefeated ? 10 : 6);
+
+    if (this.boss.isDefeated) {
+      this.onBossDefeated();
+    }
+
+    this.updateUI();
+    return true;
+  }
+
+  /**
+   * Contact damage: fire power absorbs one hit, otherwise it costs a life
+   */
+  damagePlayer() {
+    if (this.gameOver || this.levelComplete || this.isRespawning) return;
+
+    if (this.player.hasFire) {
+      this.setFirePower(false);
+      this.audioManager.play('powerdown');
+      this.particles.createFirePoof(this.player.x, this.player.y, 8);
+      this.player.setHurtImmunity(1.5);
+      return;
+    }
+
+    this.playerDeath();
   }
 
   onBossDefeated() {
@@ -565,6 +947,7 @@ export default class GameScene extends Phaser.Scene {
     this.goalLocked = false;
     this.goalFlag.setAlpha(1);
     this.showBossBanner('BOSS DEFEATED');
+    this.endBossMusic();
   }
 
   resetBossEncounter() {
@@ -573,6 +956,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.boss.reset();
+    this.setBossMusic(false);
     this.goalLocked = true;
     this.goalFlag.setAlpha(0.35);
     this.updateUI();
@@ -591,6 +975,9 @@ export default class GameScene extends Phaser.Scene {
         break;
       case 'speed':
         this.player.setSpeedBoost(true, 5);
+        break;
+      case 'fire':
+        this.setFirePower(true);
         break;
       case 'life':
         this.lives = addLife(1);
@@ -633,6 +1020,7 @@ export default class GameScene extends Phaser.Scene {
     }
     
     this.levelComplete = true;
+    this.audioManager.stopMusic();
     this.audioManager.play('complete');
 
     if (hasNextLevel()) {
@@ -648,11 +1036,14 @@ export default class GameScene extends Phaser.Scene {
     if (this.gameOver || this.levelComplete || this.isRespawning) return;
 
     this.lives = loseLife(1);
+    this.levelDeaths += 1;
+    addDeath();
     this.audioManager.play('death');
     this.particles.createExplosion(this.player.x, this.player.y);
 
     if (this.lives <= 0) {
       this.gameOver = true;
+      this.audioManager.stopMusic();
       this.showGameOver();
     } else {
       // Respawn at checkpoint or start
@@ -670,6 +1061,8 @@ export default class GameScene extends Phaser.Scene {
         this.player.sprite.body.moves = true;
         this.player.sprite.setVisible(true);
         this.player.setHurtImmunity(1.5);
+        // Power-ups don't survive a lost life
+        this.setFirePower(false);
         this.isRespawning = false;
         this.cameras.main.fadeIn(300);
       });
@@ -713,7 +1106,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     if (this.isTouchDevice) {
-      this.touchHintText = this.add.text(160, 34, 'TOUCH: MOVE  JUMP  PAUSE', {
+      // Bottom centre, clear of the top-row HUD and the boss banner
+      this.touchHintText = this.add.text(160, 168, 'TOUCH: MOVE  JUMP  PAUSE', {
         fontSize: '8px',
         fill: '#88CCFF',
         fontFamily: '"Courier New", monospace',
@@ -723,35 +1117,72 @@ export default class GameScene extends Phaser.Scene {
       this.touchHintText.setDepth(100);
     }
     
+    // Top row, left to right: score | level | coins | lives (nothing shares an x-range)
+    this.coinIcon = this.add.image(204, 13, 'ui_coin');
+    this.coinIcon.setScrollFactor(0);
+    this.coinIcon.setDepth(100);
+
+    this.coinText = this.add.text(211, 8, `x${this.coinCount}`, {
+      fontSize: '10px',
+      fill: '#FFD700',
+      fontFamily: '"Courier New", monospace',
+    });
+    this.coinText.setScrollFactor(0);
+    this.coinText.setDepth(100);
+
     // Lives (heart icons)
     this.livesContainer = this.add.container(0, 0);
     this.livesContainer.setScrollFactor(0);
     this.livesContainer.setDepth(100);
+    this.renderedLives = null;
     this.updateLivesUI();
-    
-    // Pause hint
-    const pauseText = this.add.text(310, 8, 'ESC', {
-      fontSize: '8px',
-      fill: '#888888',
-      fontFamily: '"Courier New", monospace',
-    });
-    pauseText.setOrigin(1, 0);
-    pauseText.setScrollFactor(0);
-    pauseText.setDepth(100);
+
+    // Pause hint, under the lives. Touch devices have the PAUSE button instead.
+    if (!this.isTouchDevice) {
+      const pauseText = this.add.text(314, 20, 'ESC: PAUSE', {
+        fontSize: '8px',
+        fill: '#888888',
+        fontFamily: '"Courier New", monospace',
+      });
+      pauseText.setOrigin(1, 0);
+      pauseText.setScrollFactor(0);
+      pauseText.setDepth(100);
+    }
   }
 
   updateLivesUI() {
+    // Rebuilding on every coin or score change is wasteful, so only redraw when lives changed
+    if (this.renderedLives === this.lives) {
+      return;
+    }
+
+    this.renderedLives = this.lives;
     this.livesContainer.removeAll(true);
-    
-    for (let i = 0; i < this.lives; i++) {
-      const heart = this.add.image(270 + i * 12, 12, 'ui_heart');
+
+    // Up to 3 hearts, beyond that one heart and a count so it never runs off-screen
+    const showCount = this.lives > 3;
+    const heartCount = showCount ? 1 : this.lives;
+
+    for (let i = 0; i < heartCount; i++) {
+      const heart = this.add.image(274 + i * 12, 13, 'ui_heart');
       heart.setScrollFactor(0);
       this.livesContainer.add(heart);
+    }
+
+    if (showCount) {
+      const count = this.add.text(281, 8, `x${this.lives}`, {
+        fontSize: '10px',
+        fill: '#FFFFFF',
+        fontFamily: '"Courier New", monospace',
+      });
+      count.setScrollFactor(0);
+      this.livesContainer.add(count);
     }
   }
 
   updateUI() {
     this.scoreText.setText(`SCORE: ${this.score}`);
+    this.coinText.setText(`x${this.coinCount}`);
 
     if (this.bossText) {
       this.bossText.setText(this.bossDefeated ? 'BOSS: DOWN' : `BOSS: ${this.boss.health}`);
@@ -791,8 +1222,64 @@ export default class GameScene extends Phaser.Scene {
       this.input.off('pointerup', this.handleTouchPointerUp);
       this.input.off('pointerupoutside', this.handleTouchPointerUp);
       this.bossBannerTimer?.remove(false);
+      this.fireballs?.clear();
+      if (this.fireKeys) {
+        this.input.keyboard.removeKey(this.fireKeys.x);
+        this.input.keyboard.removeKey(this.fireKeys.f);
+      }
       this.touchButtons.forEach(button => button.destroy());
       this.particles?.clear();
+    });
+  }
+
+  setupMusic() {
+    this.bossMusicActive = false;
+    this.audioManager.playMusic('level', { level: this.levelIndex });
+
+    // Keep the loop running under the pause/settings overlays, just quieter.
+    const duck = () => this.audioManager.setMusicDucked(true);
+    const unduck = () => this.audioManager.setMusicDucked(false);
+    this.events.on('pause', duck);
+    this.events.on('resume', unduck);
+    this.events.once('shutdown', () => {
+      this.events.off('pause', duck);
+      this.events.off('resume', unduck);
+      unduck();
+    });
+  }
+
+  setBossMusic(active) {
+    if (this.bossMusicActive === active) return;
+
+    this.bossMusicActive = active;
+    if (active) {
+      this.audioManager.playMusic('boss');
+    } else {
+      this.audioManager.playMusic('level', { level: this.levelIndex });
+    }
+  }
+
+  updateBossMusic() {
+    if (!this.boss || this.bossDefeated) return;
+
+    // Different enter/exit distances so hovering at the edge doesn't flip tracks.
+    const distance = Math.abs(this.player.sprite.x - this.boss.sprite.x);
+    if (distance < 200) {
+      this.setBossMusic(true);
+    } else if (distance > 320) {
+      this.setBossMusic(false);
+    }
+  }
+
+  endBossMusic() {
+    this.bossMusicActive = false;
+    this.audioManager.stopMusic();
+
+    // Let the victory sound play on its own, then bring the level theme back.
+    this.time.delayedCall(2000, () => {
+      if (!this.levelComplete && !this.gameOver) {
+        this.audioManager.playMusic('level', { level: this.levelIndex });
+      }
     });
   }
 
@@ -805,27 +1292,59 @@ export default class GameScene extends Phaser.Scene {
     this.scene.launch('PauseScene');
   }
 
+  getLevelStats() {
+    const stats = {
+      coins: this.levelCoins,
+      totalCoins: this.levelData.coins.length,
+      secrets: this.discoveredSecrets.size,
+      totalSecrets: this.levelData.secrets ? this.levelData.secrets.length : 0,
+      deaths: this.levelDeaths,
+      time: this.levelTime,
+      parTime: getParTime(this.levelData),
+    };
+
+    return { ...stats, rank: computeRank(stats) };
+  }
+
   showLevelComplete() {
     this.isTransitioning = true;
+    const stats = this.getLevelStats();
+    recordLevelResult(stats);
+
     this.cameras.main.fadeOut(250);
     this.cameras.main.once('camerafadeoutcomplete', () => {
       this.scene.start('LevelSummaryScene', {
         levelIndex: this.levelIndex,
         score: this.score,
         lives: this.lives,
+        coinCount: this.coinCount,
+        stats,
       });
     });
   }
 
   showCampaignComplete() {
     this.isTransitioning = true;
+    recordLevelResult(this.getLevelStats());
+    // Snapshot the run totals before abandonRun() resets them
+    const run = getRunState();
     abandonRun();
+
+    const rank = computeRank({
+      coins: run.coins,
+      totalCoins: run.coinsPossible,
+      secrets: run.secretsFound,
+      totalSecrets: run.secretsPossible,
+      deaths: run.deaths,
+      time: run.playTime,
+      parTime: run.parTime,
+    });
 
     const overlay = this.add.rectangle(160, 90, 320, 180, 0x000000, 0.8);
     overlay.setScrollFactor(0);
     overlay.setDepth(200);
 
-    const title = this.add.text(160, 60, 'CAMPAIGN COMPLETE!', {
+    const title = this.add.text(160, 30, 'CAMPAIGN COMPLETE!', {
       fontSize: '18px',
       fill: '#FFD700',
       fontFamily: '"Courier New", monospace',
@@ -835,7 +1354,7 @@ export default class GameScene extends Phaser.Scene {
     title.setScrollFactor(0);
     title.setDepth(201);
 
-    const summary = this.add.text(160, 88, `FINAL SCORE: ${this.score}`, {
+    const summary = this.add.text(160, 58, `FINAL SCORE: ${this.score}`, {
       fontSize: '12px',
       fill: '#FFFFFF',
       fontFamily: '"Courier New", monospace',
@@ -844,16 +1363,34 @@ export default class GameScene extends Phaser.Scene {
     summary.setScrollFactor(0);
     summary.setDepth(201);
 
-    const levelsCleared = this.add.text(160, 108, `LEVELS CLEARED: ${this.totalLevels}`, {
-      fontSize: '10px',
-      fill: '#AAAAAA',
-      fontFamily: '"Courier New", monospace',
-    });
-    levelsCleared.setOrigin(0.5);
-    levelsCleared.setScrollFactor(0);
-    levelsCleared.setDepth(201);
+    const lines = [
+      `LEVELS CLEARED: ${this.totalLevels}`,
+      `COINS: ${run.coins}   DEATHS: ${run.deaths}`,
+      `TOTAL TIME: ${formatTime(run.playTime)}`,
+    ];
 
-    const prompt = this.add.text(160, 132, 'ENTER / TAP for Menu', {
+    lines.forEach((line, i) => {
+      const text = this.add.text(160, 80 + i * 13, line, {
+        fontSize: '10px',
+        fill: '#AAAAAA',
+        fontFamily: '"Courier New", monospace',
+      });
+      text.setOrigin(0.5);
+      text.setScrollFactor(0);
+      text.setDepth(201);
+    });
+
+    const rankLabel = this.add.text(160, 130, `RANK: ${rank}`, {
+      fontSize: '16px',
+      fill: RANK_COLORS[rank],
+      fontFamily: '"Courier New", monospace',
+      fontStyle: 'bold',
+    });
+    rankLabel.setOrigin(0.5);
+    rankLabel.setScrollFactor(0);
+    rankLabel.setDepth(201);
+
+    const prompt = this.add.text(160, 158, 'ENTER / TAP for Menu', {
       fontSize: '10px',
       fill: '#AAAAAA',
       fontFamily: '"Courier New", monospace',
@@ -882,6 +1419,8 @@ export default class GameScene extends Phaser.Scene {
       this.input.keyboard.off('keydown-ENTER', confirm);
       this.input.off('pointerdown', confirm);
     });
+    // Pad confirm shares the same guard, so it can't double-fire with ENTER, a tap or the timer
+    this.gamepad.handlers.confirm = confirm;
 
     return confirm;
   }
@@ -944,6 +1483,9 @@ export default class GameScene extends Phaser.Scene {
     
     if (this.levelComplete || this.gameOver) return;
 
+    // Clamp so a tab switch does not inflate the level time
+    this.levelTime += Math.min(dt, 0.1);
+
     if (!this.isRespawning) {
       if (this.shouldQueueJump()) {
         this.player.jump();
@@ -951,13 +1493,20 @@ export default class GameScene extends Phaser.Scene {
 
       // Update player
       this.player.update(this.getPlayerInputState(), dt);
+
+      if (this.shouldFire()) {
+        this.tryFireball();
+      }
     }
-    
+
+    this.fireballs.update(dt);
+
     // Update enemies
     this.enemies.forEach(enemy => enemy.update(dt));
 
     if (this.boss) {
       this.boss.update(dt, this.player.sprite);
+      this.updateBossMusic();
     }
     
     // Update particles
@@ -965,6 +1514,7 @@ export default class GameScene extends Phaser.Scene {
     
     // Update moving platforms
     this.updateMovingPlatforms();
+    this.updateFallingPlatforms(dt);
     
     // Update parallax
     const scrollX = this.cameras.main.scrollX;

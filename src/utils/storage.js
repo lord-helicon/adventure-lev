@@ -1,7 +1,34 @@
 import { DEFAULT_KEYBOARD_LAYOUT, normalizeKeyboardLayout } from './inputConfig.js';
 
 const STORAGE_KEY = 'adventure-lev.save';
-const STORAGE_VERSION = 1;
+// v2 added the run stat counters; v1 saves are migrated in place (missing counters read as 0)
+const STORAGE_VERSION = 2;
+const MIGRATABLE_VERSIONS = [1, STORAGE_VERSION];
+
+// Per-run counters persisted next to score/lives
+export const RUN_STAT_KEYS = [
+  'coins',
+  'deaths',
+  'playTime',
+  'coinsPossible',
+  'secretsFound',
+  'secretsPossible',
+  'parTime',
+];
+
+function sanitizeCount(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+export function sanitizeRunStats(run = {}) {
+  const stats = {};
+
+  RUN_STAT_KEYS.forEach(key => {
+    stats[key] = sanitizeCount(run[key]);
+  });
+
+  return stats;
+}
 
 const defaultData = {
   version: STORAGE_VERSION,
@@ -44,11 +71,12 @@ function sanitizeRun(run) {
     currentLevelIndex,
     score,
     lives,
+    ...sanitizeRunStats(run),
   };
 }
 
 function sanitizeData(data) {
-  if (!data || typeof data !== 'object' || data.version !== STORAGE_VERSION) {
+  if (!data || typeof data !== 'object' || !MIGRATABLE_VERSIONS.includes(data.version)) {
     return { ...defaultData, settings: { ...defaultData.settings } };
   }
 

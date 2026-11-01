@@ -103,6 +103,11 @@ export default class Boss {
   }
 
   takeStomp() {
+    return this.takeHit();
+  }
+
+  // Any 1-damage hit (stomp, fireball, star contact) shares the invulnerability window
+  takeHit() {
     if (this.isDefeated || this.invulnerableTimer > 0) {
       return false;
     }

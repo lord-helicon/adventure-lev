@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import AudioManager from '../utils/AudioManager.js';
+import { createGamepadInput } from '../utils/gamepadInput.js';
 import { abandonRun, getRunState, startNewRun } from '../utils/runState.js';
 import { getBestScore } from '../utils/storage.js';
 
@@ -19,6 +20,7 @@ export default class GameOverScene extends Phaser.Scene {
   create() {
     this.audioManager = new AudioManager(this);
     this.audioManager.resume();
+    this.audioManager.playJingle('gameover');
     this.isTransitioning = false;
     
     // Background
@@ -105,6 +107,7 @@ export default class GameOverScene extends Phaser.Scene {
 
     this.input.keyboard.on('keydown-ENTER', this.handleRestart);
     this.input.keyboard.on('keydown-M', this.handleMenu);
+    createGamepadInput(this, { confirm: this.handleRestart, back: this.handleMenu });
 
     this.events.once('shutdown', () => {
       this.input.keyboard.off('keydown-ENTER', this.handleRestart);
