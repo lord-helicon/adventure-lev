@@ -51,6 +51,7 @@ export default class GameScene extends Phaser.Scene {
     this.checkpointPos = null;
     this.enemies = [];
     this.movingPlatforms = [];
+    this.fallingPlatforms = [];
     this.secretZones = [];
     this.discoveredSecrets = new Set();
     // Run coin total (this.coins is the physics group) and per-level stats for the summary
@@ -92,6 +93,7 @@ export default class GameScene extends Phaser.Scene {
     
     // Create parallax background
     this.createParallaxBackground();
+    this.applyLevelTheme();
     
     // Create level
     this.createLevel();
@@ -152,6 +154,8 @@ export default class GameScene extends Phaser.Scene {
     this.levelData.platforms.forEach(platform => {
       if (platform.type === 'moving') {
         this.createMovingPlatform(platform);
+      } else if (platform.type === 'falling') {
+        this.createFallingPlatform(platform);
       } else if (platform.type === 'breakable') {
         for (let i = 0; i < platform.width; i++) {
           const tile = this.breakablePlatforms.create(
@@ -171,7 +175,8 @@ export default class GameScene extends Phaser.Scene {
         }
       }
     });
-    
+
+    this.createSpikes();
     this.createCoins();
     this.createEnemies();
     
@@ -446,6 +451,8 @@ export default class GameScene extends Phaser.Scene {
       });
     
     this.setupMovingPlatformCollisions();
+    this.setupFallingPlatformCollisions();
+    this.setupSpikeCollisions();
     
     // Springs
     this.physics.add.overlap(this.player.sprite, this.springs, 
@@ -497,6 +504,171 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.player.sprite, tiles, null, (player, tile) =>
       player.body.prev.y + player.body.height <= tile.body.prev.y + 4
     );
+  }
+
+  applyLevelTheme() {
+    const theme = this.levelData.theme;
+
+    if (!theme) {
+      return;
+    }
+
+    // Tints multiply the shared background textures, so one set of art serves every theme
+    if (theme.skyTint !== undefined) this.bgSky.setTint(theme.skyTint);
+    if (theme.mountainTint !== undefined) this.bgMountains.setTint(theme.mountainTint);
+    if (theme.treeTint !== undefined) this.bgTrees.setTint(theme.treeTint);
+    if (theme.cloudAlpha !== undefined) this.bgClouds.setAlpha(theme.cloudAlpha);
+  }
+
+  createSpikes() {
+    this.spikes = this.physics.add.staticGroup();
+
+    (this.levelData.spikes || []).forEach(spike => {
+      for (let i = 0; i < spike.width; i++) {
+        const tile = this.spikes.create(spike.x + i * 16, spike.y, 'tile_spikes');
+        tile.setOrigin(0);
+        tile.refreshBody();
+        // Only the lower half of the tile hurts, so skimming the tips is forgiven
+        tile.body.setSize(14, 8, false);
+        tile.body.setOffset(1, 8);
+      }
+    });
+  }
+
+  setupSpikeCollisions() {
+    this.physics.add.overlap(this.player.sprite, this.spikes, () => this.hitSpikes());
+  }
+
+  hitSpikes() {
+    if (this.levelComplete || this.gameOver || this.isRespawning) return;
+
+    if (this.player.canBeHurt()) {
+      this.playerDeath();
+    }
+  }
+
+  createFallingPlatform(platformData) {
+    const platform = {
+      tiles: [],
+      startX: platformData.x,
+      startY: platformData.y,
+      state: 'idle',
+      standTimer: 0,
+      standGrace: 0,
+      timer: 0,
+    };
+
+    for (let i = 0; i < platformData.width; i++) {
+      const tile = this.physics.add.sprite(platformData.x + i * 16, platformData.y, 'tile_falling');
+      tile.setOrigin(0);
+      tile.body.setImmovable(true);
+      tile.body.pushable = false;
+      tile.body.allowGravity = false;
+      tile.fallingPlatform = platform;
+      platform.tiles.push(tile);
+    }
+
+    this.fallingPlatforms.push(platform);
+  }
+
+  setupFallingPlatformCollisions() {
+    const tiles = this.fallingPlatforms.flatMap(platform => platform.tiles);
+
+    if (tiles.length === 0) {
+      return;
+    }
+
+    // One-way from above, and a platform that has let go no longer holds anyone
+    this.physics.add.collider(
+      this.player.sprite,
+      tiles,
+      (player, tile) => {
+        if (player.body.touching.down) {
+          tile.fallingPlatform.standing = true;
+        }
+      },
+      (player, tile) =>
+        tile.fallingPlatform.state !== 'falling' &&
+        player.body.prev.y + player.body.height <= tile.body.prev.y + 4
+    );
+  }
+
+  updateFallingPlatforms(dt) {
+    const FALL_TRIGGER_TIME = 0.4;
+    const SHAKE_TIME = 0.4;
+    const RESPAWN_TIME = 3;
+
+    this.fallingPlatforms.forEach(platform => {
+      if (platform.state === 'idle') {
+        // The collide callback can skip a frame, so allow a short grace before the timer resets
+        platform.standGrace = platform.standing ? 0.1 : platform.standGrace - dt;
+        platform.standTimer = platform.standGrace > 0 ? platform.standTimer + dt : 0;
+
+        if (platform.standTimer >= FALL_TRIGGER_TIME) {
+          platform.state = 'shaking';
+          platform.timer = 0;
+          this.audioManager.play('break');
+        }
+      } else if (platform.state === 'shaking') {
+        platform.timer += dt;
+        const jitter = Math.floor(platform.timer * 40) % 2 === 0 ? 1 : -1;
+
+        platform.tiles.forEach((tile, index) => {
+          tile.x = platform.startX + index * 16 + jitter;
+          tile.body.updateFromGameObject();
+        });
+
+        if (platform.timer >= SHAKE_TIME) {
+          platform.state = 'falling';
+          platform.timer = 0;
+          platform.tiles.forEach((tile, index) => {
+            tile.x = platform.startX + index * 16;
+            tile.body.updateFromGameObject();
+            tile.body.allowGravity = true;
+          });
+        }
+      } else if (platform.state === 'falling') {
+        platform.timer += dt;
+
+        if (platform.tiles.every(tile => tile.y > this.levelData.height + 24)) {
+          platform.tiles.forEach(tile => tile.disableBody(true, true));
+          platform.state = 'gone';
+        }
+      } else if (platform.state === 'gone') {
+        platform.timer += dt;
+
+        if (platform.timer >= RESPAWN_TIME && !this.isPlayerInsideFallingPlatform(platform)) {
+          this.respawnFallingPlatform(platform);
+        }
+      }
+
+      platform.standing = false;
+    });
+  }
+
+  isPlayerInsideFallingPlatform(platform) {
+    const body = this.player.sprite.body;
+    const left = platform.startX;
+    const right = platform.startX + platform.tiles.length * 16;
+
+    // Ignore the top few pixels so a player standing on the spot is nudged up rather than blocking the respawn
+    return body.right > left && body.left < right &&
+      body.bottom > platform.startY + 4 && body.top < platform.startY + 16;
+  }
+
+  respawnFallingPlatform(platform) {
+    platform.tiles.forEach((tile, index) => {
+      tile.enableBody(true, platform.startX + index * 16, platform.startY, true, true);
+      tile.body.allowGravity = false;
+      tile.body.setVelocity(0, 0);
+      tile.setAlpha(0.3);
+      this.tweens.add({ targets: tile, alpha: 1, duration: 300 });
+    });
+
+    platform.state = 'idle';
+    platform.standTimer = 0;
+    platform.standGrace = 0;
+    platform.timer = 0;
   }
 
   setupEnemyCollisions() {
@@ -1326,6 +1498,7 @@ export default class GameScene extends Phaser.Scene {
     
     // Update moving platforms
     this.updateMovingPlatforms();
+    this.updateFallingPlatforms(dt);
     
     // Update parallax
     const scrollX = this.cameras.main.scrollX;
