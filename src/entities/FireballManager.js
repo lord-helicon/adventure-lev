@@ -110,6 +110,9 @@ export default class FireballManager {
   }
 
   clear() {
-    this.group.clear(true, true);
+    // Phaser may already have destroyed the group during scene shutdown (children is then undefined)
+    if (this.group.children) {
+      this.group.clear(true, true);
+    }
   }
 }
