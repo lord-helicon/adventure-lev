@@ -1,10 +1,14 @@
 # Adventure Lev
 
-Adventure Lev is a retro-inspired 2D platformer built with Phaser and Vite. The current game is a short three-level campaign with generated pixel-art assets, procedural audio, and a full menu-to-completion loop.
+Adventure Lev is a retro-inspired 2D platformer built with Phaser and Vite. The current game is a short four-level campaign with generated pixel-art assets, procedural audio, and a full menu-to-completion loop.
+
+**▶ Play it in your browser: https://lord-helicon.github.io/adventure-lev/**
+
+The live build is deployed to GitHub Pages automatically on every push to `main`.
 
 ## Current Scope
 
-- Three campaign levels with escalating layout complexity
+- Four campaign levels with escalating layout complexity
 - Local save-backed continue flow and best-score tracking
 - Tight platforming movement with coyote time and jump buffering
 - Coins, checkpoints, power-ups, springs, breakable blocks, and moving platforms
@@ -80,7 +84,6 @@ src/
 - `ROADMAP.md`: phased product and technical roadmap
 - `BACKLOG.md`: issue-sized backlog derived from the roadmap
 - `SMOKE_TEST_CHECKLIST.md`: manual regression checklist
-- `AGENTS.md`: repo-specific working notes for coding agents
 
 ## Browser Support
 
@@ -88,7 +91,7 @@ src/
 - Firefox
 - Safari
 
-Mobile browser support is planned, but dedicated touch controls are not implemented yet.
+Mobile browsers are supported with on-screen touch controls, and gamepads work in all browsers that implement the Gamepad API.
 
 ## License
 
