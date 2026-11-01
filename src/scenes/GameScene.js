@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
 import Boss from '../entities/Boss.js';
+import FireballManager from '../entities/FireballManager.js';
 import ParticleSystem from '../utils/ParticleSystem.js';
 import AudioManager from '../utils/AudioManager.js';
 import { getLevelCount, getLevelData } from '../data/levelData.js';
@@ -63,6 +64,8 @@ export default class GameScene extends Phaser.Scene {
     this.touchControls = { left: false, right: false, jump: false };
     this.touchButtons = [];
     this.touchButtonReleases = [];
+    this.touchFireQueued = false;
+    this.fireButtonParts = [];
     this.isTouchDevice = false;
     this.keyboardLayout = loadSettings().keyboardLayout;
     this.layoutKeys = {};
@@ -103,6 +106,7 @@ export default class GameScene extends Phaser.Scene {
     
     // Set up collisions
     this.setupCollisions();
+    this.setupFireballs();
     
     // Input handling
     this.setupInputHandlers();
@@ -312,6 +316,7 @@ export default class GameScene extends Phaser.Scene {
     this.handlePause = () => this.pauseGame();
     this.input.keyboard.on('keydown-ESC', this.handlePause);
     this.input.keyboard.on('keydown-P', this.handlePause);
+    this.setupFireInput();
     this.refreshKeyboardLayout();
 
     if (this.isTouchDevice) {
@@ -346,6 +351,16 @@ export default class GameScene extends Phaser.Scene {
       this.player.jump();
       this.touchButtonReleases.push({ pointerId, key: 'jump' });
     }, '10px');
+
+    // FIRE only exists while the player has fire power (see setFirePower)
+    const fireButtonStart = this.touchButtons.length;
+    this.createTouchButton(226, 152, 16, 'FIRE', () => {
+      if (this.player.hasFire) {
+        this.touchFireQueued = true;
+      }
+    }, '8px');
+    this.fireButtonParts = this.touchButtons.slice(fireButtonStart);
+    this.fireButtonParts.forEach(part => part.setVisible(this.player.hasFire));
 
     const pauseButton = this.add.rectangle(294, 30, 34, 18, 0x000000, 0.4);
     pauseButton.setScrollFactor(0);
@@ -572,8 +587,11 @@ export default class GameScene extends Phaser.Scene {
       enemy.stomp();
       this.score = addScore(100);
       this.updateUI();
+    } else if (this.player.invincible) {
+      // Star power defeats enemies on contact
+      this.defeatEnemy(enemy);
     } else if (this.player.canBeHurt()) {
-      this.playerDeath();
+      this.damagePlayer();
     }
   }
 
@@ -602,9 +620,137 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (this.player.canBeHurt()) {
-      this.playerDeath();
+    if (this.player.invincible) {
+      this.bossTakeHit();
+      return;
     }
+
+    if (this.player.canBeHurt()) {
+      this.damagePlayer();
+    }
+  }
+
+  setupFireballs() {
+    this.fireballs = new FireballManager(this);
+    this.fireballs.setupCollisions([this.platforms, this.breakablePlatforms]);
+
+    // Overlap callbacks may swap argument order, so identify the fireball by flag
+    const split = (a, b) => (a.isFireball ? [a, b] : [b, a]);
+
+    this.physics.add.overlap(
+      this.fireballs.group,
+      this.enemies.map(e => e.sprite),
+      (a, b) => {
+        const [fireball, enemySprite] = split(a, b);
+        this.fireballHitEnemy(fireball, enemySprite);
+      },
+      (a, b) => {
+        const enemy = this.enemies.find(e => e.sprite === split(a, b)[1]);
+        return Boolean(enemy) && !enemy.isDead;
+      }
+    );
+
+    if (this.boss) {
+      this.physics.add.overlap(
+        this.fireballs.group,
+        this.boss.sprite,
+        (a, b) => {
+          this.fireballs.destroyFireball(split(a, b)[0]);
+          this.bossTakeHit();
+        },
+        () => !this.boss.isDefeated
+      );
+    }
+  }
+
+  setupFireInput() {
+    // Fixed keys, independent of the arrows/WASD/ZQSD layout setting
+    this.fireKeys = this.input.keyboard.addKeys({ x: 'X', f: 'F' });
+  }
+
+  shouldFire() {
+    const queued = this.touchFireQueued;
+    this.touchFireQueued = false;
+
+    return Boolean(
+      Phaser.Input.Keyboard.JustDown(this.fireKeys.x) ||
+      Phaser.Input.Keyboard.JustDown(this.fireKeys.f) ||
+      queued
+    );
+  }
+
+  tryFireball() {
+    if (!this.player.hasFire || this.isRespawning) return;
+
+    const dir = this.player.facingRight ? 1 : -1;
+    // Spawn from the hand; the body sits a couple of pixels below the sprite centre
+    if (this.fireballs.fire(this.player.x + dir * 10, this.player.y + 2, this.player.facingRight)) {
+      this.audioManager.play('fireball');
+    }
+  }
+
+  setFirePower(active) {
+    this.player.setFirePower(active);
+    this.fireButtonParts.forEach(part => part.setVisible(active));
+
+    if (!active) {
+      this.touchFireQueued = false;
+    }
+  }
+
+  defeatEnemy(enemy) {
+    enemy.stomp();
+    this.score = addScore(100);
+    this.updateUI();
+  }
+
+  fireballHitEnemy(fireball, enemySprite) {
+    const enemy = this.enemies.find(e => e.sprite === enemySprite);
+    if (!enemy || enemy.isDead) return;
+
+    this.fireballs.destroyFireball(fireball);
+    this.defeatEnemy(enemy);
+  }
+
+  /**
+   * One point of boss damage from a non-stomp source (fireball, star contact)
+   */
+  bossTakeHit() {
+    if (!this.boss || this.boss.isDefeated || this.levelComplete || this.gameOver) {
+      return false;
+    }
+
+    if (!this.boss.takeHit()) {
+      return false;
+    }
+
+    this.score = addScore(this.boss.isDefeated ? 500 : 200);
+    this.audioManager.play(this.boss.isDefeated ? 'complete' : 'enemy_hit');
+    this.particles.createExplosion(this.boss.sprite.x, this.boss.sprite.y, this.boss.isDefeated ? 10 : 6);
+
+    if (this.boss.isDefeated) {
+      this.onBossDefeated();
+    }
+
+    this.updateUI();
+    return true;
+  }
+
+  /**
+   * Contact damage: fire power absorbs one hit, otherwise it costs a life
+   */
+  damagePlayer() {
+    if (this.gameOver || this.levelComplete || this.isRespawning) return;
+
+    if (this.player.hasFire) {
+      this.setFirePower(false);
+      this.audioManager.play('powerdown');
+      this.particles.createFirePoof(this.player.x, this.player.y, 8);
+      this.player.setHurtImmunity(1.5);
+      return;
+    }
+
+    this.playerDeath();
   }
 
   onBossDefeated() {
@@ -640,6 +786,9 @@ export default class GameScene extends Phaser.Scene {
         break;
       case 'speed':
         this.player.setSpeedBoost(true, 5);
+        break;
+      case 'fire':
+        this.setFirePower(true);
         break;
       case 'life':
         this.lives = addLife(1);
@@ -882,6 +1031,11 @@ export default class GameScene extends Phaser.Scene {
       this.input.off('pointerup', this.handleTouchPointerUp);
       this.input.off('pointerupoutside', this.handleTouchPointerUp);
       this.bossBannerTimer?.remove(false);
+      this.fireballs?.clear();
+      if (this.fireKeys) {
+        this.input.keyboard.removeKey(this.fireKeys.x);
+        this.input.keyboard.removeKey(this.fireKeys.f);
+      }
       this.touchButtons.forEach(button => button.destroy());
       this.particles?.clear();
     });
@@ -1148,6 +1302,11 @@ export default class GameScene extends Phaser.Scene {
 
       // Update player
       this.player.update(this.getPlayerInputState(), dt);
+
+    if (this.shouldFire()) {
+      this.tryFireball();
+    }
+    this.fireballs.update(dt);
     }
     
     // Update enemies

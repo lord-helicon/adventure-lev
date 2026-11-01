@@ -172,6 +172,34 @@ export default class ParticleSystem {
   }
 
   /**
+   * Small fire poof where a fireball burns out
+   */
+  createFirePoof(x, y, count = 5) {
+    if (!this.canSpawn(count)) return;
+
+    for (let i = 0; i < count; i++) {
+      const particle = this.scene.add.image(x, y, 'particle_sparkle');
+      particle.setTint(i % 2 ? 0xFF8C1A : 0xFFD83A);
+      particle.setAlpha(1);
+      particle.setScale(0.4 + Math.random() * 0.3);
+      particle.setDepth(10);
+
+      const angle = (i / count) * Math.PI * 2 + Math.random();
+      const speed = 25 + Math.random() * 30;
+
+      this.particles.push({
+        sprite: particle,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 10,
+        life: 0.3,
+        maxLife: 0.3,
+        gravity: 40,
+        rotation: Math.random() * 6
+      });
+    }
+  }
+
+  /**
    * Update all particles
    */
   update(dt) {

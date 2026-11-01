@@ -208,6 +208,17 @@ export default class AudioManager {
         this.playTone(1000, 0.3, 150, 'sine', now + 0.3);
         break;
         
+      case 'fireball':
+        this.playTone(700, 0.08, 80, 'square', now);
+        this.playTone(420, 0.1, 100, 'sawtooth', now + 0.04);
+        break;
+
+      case 'powerdown':
+        this.playTone(600, 0.1, 100, 'square', now);
+        this.playTone(400, 0.1, 100, 'square', now + 0.1);
+        this.playTone(220, 0.25, 150, 'square', now + 0.2);
+        break;
+
       case 'checkpoint':
         this.playTone(600, 0.15, 100, 'triangle', now);
         this.playTone(800, 0.2, 150, 'triangle', now + 0.15);
