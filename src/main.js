@@ -21,6 +21,9 @@ const config = {
     height: 180,
     zoom: 2, // Scale up for better visibility
   },
+  input: {
+    gamepad: true,
+  },
   physics: {
     default: 'arcade',
     arcade: {

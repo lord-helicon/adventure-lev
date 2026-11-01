@@ -7,6 +7,7 @@ import AudioManager from '../utils/AudioManager.js';
 import { getLevelCount, getLevelData } from '../data/levelData.js';
 import { getKeyboardLayoutBindings, getKeyboardLayoutLabel } from '../utils/inputConfig.js';
 import { loadSettings } from '../utils/storage.js';
+import { createGamepadInput } from '../utils/gamepadInput.js';
 import {
   abandonRun,
   addLife,
@@ -70,6 +71,7 @@ export default class GameScene extends Phaser.Scene {
     this.isTouchDevice = this.sys.game.device.input.touch;
 
     this.registerSceneCleanup();
+    this.gamepad = createGamepadInput(this, { pause: () => this.pauseGame() });
     
     // Set world bounds
     this.physics.world.setBounds(0, 0, this.levelData.width, this.levelData.height);
@@ -389,16 +391,17 @@ export default class GameScene extends Phaser.Scene {
   }
 
   getPlayerInputState() {
-    this.inputState.left.isDown = this.cursors.left.isDown || this.layoutKeys.left?.isDown || this.touchControls.left;
-    this.inputState.right.isDown = this.cursors.right.isDown || this.layoutKeys.right?.isDown || this.touchControls.right;
+    this.inputState.left.isDown = this.cursors.left.isDown || this.layoutKeys.left?.isDown || this.touchControls.left || this.gamepad.left;
+    this.inputState.right.isDown = this.cursors.right.isDown || this.layoutKeys.right?.isDown || this.touchControls.right || this.gamepad.right;
     // Up also jumps (see shouldQueueJump), so it must count as "held" or the jump is cut immediately
     this.inputState.space.isDown = this.cursors.space.isDown || this.cursors.up.isDown ||
-      this.layoutKeys.jump?.isDown || this.touchControls.jump;
+      this.layoutKeys.jump?.isDown || this.touchControls.jump || this.gamepad.jump;
     return this.inputState;
   }
 
   shouldQueueJump() {
     return Boolean(
+      this.gamepad.jumpPressed ||
       Phaser.Input.Keyboard.JustDown(this.cursors.space) ||
       Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
       (this.layoutKeys.jump && Phaser.Input.Keyboard.JustDown(this.layoutKeys.jump))
@@ -882,6 +885,8 @@ export default class GameScene extends Phaser.Scene {
       this.input.keyboard.off('keydown-ENTER', confirm);
       this.input.off('pointerdown', confirm);
     });
+    // Pad confirm shares the same guard, so it can't double-fire with ENTER, a tap or the timer
+    this.gamepad.handlers.confirm = confirm;
 
     return confirm;
   }

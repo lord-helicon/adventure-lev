@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { getLevelData } from '../data/levelData.js';
+import { createGamepadInput } from '../utils/gamepadInput.js';
 import { advanceLevel } from '../utils/runState.js';
 import { getBestScore } from '../utils/storage.js';
 
@@ -78,6 +79,7 @@ export default class LevelSummaryScene extends Phaser.Scene {
     this.handleMenu = () => this.goToMenu();
     this.input.keyboard.on('keydown-ENTER', this.handleContinue);
     this.input.keyboard.on('keydown-M', this.handleMenu);
+    createGamepadInput(this, { confirm: this.handleContinue, back: this.handleMenu });
 
     this.events.once('shutdown', () => {
       this.input.keyboard.off('keydown-ENTER', this.handleContinue);

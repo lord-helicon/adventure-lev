@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { createGamepadInput } from '../utils/gamepadInput.js';
 
 /**
  * Pause Scene - Overlay for paused game
@@ -10,6 +11,7 @@ export default class PauseScene extends Phaser.Scene {
 
   create() {
     this.isTransitioning = false;
+    this.selectedIndex = 0;
 
     // Semi-transparent overlay
     const overlay = this.add.rectangle(160, 90, 320, 180, 0x000000, 0.6);
@@ -65,11 +67,35 @@ export default class PauseScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-M', this.handleMenu);
     this.input.keyboard.on('keydown-S', this.handleSettings);
 
+    // Gamepad: d-pad/stick picks an entry, A activates it, Start or B resumes
+    this.optionTexts = [resumeText, menuText, settingsText];
+    this.optionActions = [this.handleResume, this.handleMenu, this.handleSettings];
+    this.refreshSelection();
+    createGamepadInput(this, {
+      up: () => this.moveSelection(-1),
+      down: () => this.moveSelection(1),
+      confirm: () => this.optionActions[this.selectedIndex](),
+      back: this.handleResume,
+      pause: this.handleResume,
+    });
+
     this.events.once('shutdown', () => {
       this.input.keyboard.off('keydown-ESC', this.handleResume);
       this.input.keyboard.off('keydown-P', this.handleResume);
       this.input.keyboard.off('keydown-M', this.handleMenu);
       this.input.keyboard.off('keydown-S', this.handleSettings);
+    });
+  }
+
+  moveSelection(direction) {
+    const count = this.optionTexts.length;
+    this.selectedIndex = (this.selectedIndex + direction + count) % count;
+    this.refreshSelection();
+  }
+
+  refreshSelection() {
+    this.optionTexts.forEach((text, index) => {
+      text.setFill(index === this.selectedIndex ? '#FFFFFF' : '#AAAAAA');
     });
   }
 
