@@ -465,6 +465,57 @@ export const createAssets = function() {
   lifeCtx.fill();
   this.textures.addCanvas('powerup_life', lifeCanvas);
 
+  // Fire flower: a flame bud on a short stem
+  const { canvas: fireCanvas, ctx: fireCtx } = createCanvas(16, 16);
+  const firePalette = {
+    R: '#E8431C', O: '#FF8C1A', Y: '#FFD83A', W: '#FFF6B0', G: '#2E9E3A',
+  };
+  [
+    '.......R........',
+    '......ROR.......',
+    '......ROOR.R....',
+    '..R..ROOOROR....',
+    '.ROR.ROYOOOR....',
+    '.ROORROYYOOR....',
+    '..ROOOYYYYOOR...',
+    '..ROOYYWWYYOR...',
+    '..ROOYWWWWYOR...',
+    '...ROOYWWYOOR...',
+    '...ROOOYYOOOR...',
+    '....ROOOOOOR....',
+    '.....RRRRRR.....',
+    '......GGGG......',
+    '......GGGG......',
+    '.....GGGGGG.....',
+  ].forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      if (firePalette[row[x]]) {
+        fireCtx.fillStyle = firePalette[row[x]];
+        fireCtx.fillRect(x, y, 1, 1);
+      }
+    }
+  });
+  this.textures.addCanvas('powerup_fire', fireCanvas);
+
+  // Fireball projectile (4 spin frames, a spark orbits the core)
+  for (let i = 0; i < 4; i++) {
+    const { canvas: fbCanvas, ctx: fbCtx } = createCanvas(8, 8);
+    fbCtx.fillStyle = '#E8431C';
+    fbCtx.beginPath();
+    fbCtx.arc(4, 4, 3.5, 0, Math.PI * 2);
+    fbCtx.fill();
+    fbCtx.fillStyle = '#FF8C1A';
+    fbCtx.beginPath();
+    fbCtx.arc(4, 4, 2.5, 0, Math.PI * 2);
+    fbCtx.fill();
+    fbCtx.fillStyle = '#FFF6B0';
+    fbCtx.fillRect(3, 3, 2, 2);
+    const angle = (i * Math.PI) / 2;
+    fbCtx.fillStyle = '#FFD83A';
+    fbCtx.fillRect(Math.round(3.5 + Math.cos(angle) * 3), Math.round(3.5 + Math.sin(angle) * 3), 1, 1);
+    this.textures.addCanvas(`fireball_${i}`, fbCanvas);
+  }
+
   // ==========================================
   // FLAG / GOAL
   // ==========================================

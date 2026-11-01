@@ -3,7 +3,7 @@
  */
 const PLATFORM_TYPES = new Set(['grass', 'dirt', 'moving', 'breakable']);
 const ENEMY_TYPES = new Set(['ground', 'flying', 'hopper', 'swooper']);
-const POWERUP_TYPES = new Set(['star', 'speed', 'life']);
+const POWERUP_TYPES = new Set(['star', 'speed', 'life', 'fire']);
 
 const campaignLevels = [
   {
@@ -68,6 +68,7 @@ const campaignLevels = [
       { x: 830, y: 148 },
     ],
     powerups: [
+      { x: 110, y: 128, type: 'fire' },
       { x: 410, y: 40, type: 'star' },
       { x: 880, y: 40, type: 'speed' },
       { x: 1100, y: 80, type: 'life' },
@@ -151,6 +152,7 @@ const campaignLevels = [
       { x: 980, y: 148 },
     ],
     powerups: [
+      { x: 80, y: 128, type: 'fire' },
       { x: 505, y: 24, type: 'star' },
       { x: 1080, y: 60, type: 'speed' },
       { x: 1272, y: 38, type: 'life' },
@@ -244,6 +246,7 @@ const campaignLevels = [
       { x: 1330, y: 148 },
     ],
     powerups: [
+      { x: 84, y: 128, type: 'fire' },
       { x: 448, y: 26, type: 'star' },
       { x: 1064, y: 8, type: 'speed' },
       { x: 1408, y: 34, type: 'life' },

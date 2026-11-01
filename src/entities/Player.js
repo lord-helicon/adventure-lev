@@ -41,6 +41,9 @@ export default class Player {
     this.speedBoost = false;
     this.speedBoostTimer = 0;
 
+    // Fire power lasts for the rest of the level or until a hit removes it
+    this.hasFire = false;
+
     // Post-respawn damage immunity
     this.hurtImmunityTimer = 0;
 
@@ -234,6 +237,19 @@ export default class Player {
     this.speedBoost = active;
     if (active) {
       this.speedBoostTimer = duration;
+    }
+  }
+
+  /**
+   * Toggle fire power. Shown with a colour tint, which can't clash with the
+   * alpha flicker used by star power and hurt immunity.
+   */
+  setFirePower(active) {
+    this.hasFire = active;
+    if (active) {
+      this.sprite.setTint(0xFFAA66);
+    } else {
+      this.sprite.clearTint();
     }
   }
 
